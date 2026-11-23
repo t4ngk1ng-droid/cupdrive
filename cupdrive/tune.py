@@ -87,10 +87,16 @@ def gamma_lift(x, gamma):
 
 
 def moving_avg(x, k):
-    if k <= 1:
+    # np.convolve(mode="same") 返回 max(len(x), len(k))，窗口比轨道长时
+    # 会把短曲线拉长。先夹住窗口，保证输出点数等于输入点数。
+    n = len(x)
+    if n <= 1 or k <= 1:
+        return x
+    k = max(1, min(int(k), n))
+    if k == 1:
         return x
     ker = np.ones(k) / k
-    return np.convolve(x, ker, mode="same")
+    return np.convolve(x, ker, mode="same")[:n]
 
 
 def looksay_max(a, lookahead_s):

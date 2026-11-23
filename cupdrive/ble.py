@@ -96,6 +96,9 @@ class BleLink:
         self.volt = None
         self.on_disconnect = None
         self.on_notify = None
+        self.writes_ok = 0
+        self.writes_fail = 0
+        self.last_error = ""
 
     @property
     def connected(self) -> bool:
@@ -107,6 +110,9 @@ class BleLink:
         name = dev.name if dev is not None else name_hint
         _, wr, nt = P.resolve(name or "")
         self.wr, self.nt = wr, nt
+        self.writes_ok = 0
+        self.writes_fail = 0
+        self.last_error = ""
 
         def _disconnected(_client):
             self.battery = None
@@ -137,10 +143,13 @@ class BleLink:
             # 没有 notify 也能控制，只是拿不到电量
             pass
 
-        # 归零 → 启动
-        await self._write(P.aa_frame(0x08, [0, 0, 0, 0, 0, 0]))
+        # 归零 → 启动。两步都成功才算连上；否则设备可能根本没进入
+        # 可控制状态，不能对外报"已连接"。
+        if not await self._write(P.aa_frame(0x08, [0, 0, 0, 0, 0, 0])):
+            raise RuntimeError("归零帧写入失败: " + (self.last_error or "unknown"))
         await asyncio.sleep(0.15)
-        await self._write(P.start())
+        if not await self._write(P.start()):
+            raise RuntimeError("启动帧写入失败: " + (self.last_error or "unknown"))
         await asyncio.sleep(0.20)
         return True
 
@@ -149,8 +158,11 @@ class BleLink:
             return False
         try:
             await self.client.write_gatt_char(self.wr, frame, response=False)
+            self.writes_ok += 1
             return True
-        except Exception:
+        except Exception as e:
+            self.writes_fail += 1
+            self.last_error = str(e)
             return False
 
     async def send(self, frame) -> bool:

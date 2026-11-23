@@ -5,12 +5,16 @@ webapp.py — cupdrive 桌面版（浏览器壳）
 Python 只做两件事：BLE 和曲线加工。界面是本地网页，
 由内置 HTTP 服务提供，用 Edge/Chrome 的 --app 模式打开成独立窗口。
 
-为什么不用 pywebview
+安全边界
 ──────────────────────────────────────────────────────────────
-pywebview 在 Windows 上依赖 pythonnet + WinForms，PyInstaller
-打包后 pythonnet 加载失败（Failed to resolve
-Python.Runtime.Loader.Initialize），分发版本跑不起来。
-换成 HTTP + 浏览器后，打包只依赖 bleak / numpy，能稳定出 exe。
+只监听 127.0.0.1 不等于授权：本机任何进程/网页都能往这个端口发
+POST。所以控制 API 额外要求：
+
+  1. 精确的 Host（127.0.0.1:port 或 localhost:port）
+  2. 同源 Origin（如果浏览器带了）
+  3. 启动时随机生成的会话令牌（X-Cupdrive-Token 或 ?token=）
+
+令牌注入到首页 HTML，控制请求不带令牌一律 403。
 
 用法
 ──────────────────────────────────────────────────────────────
@@ -26,10 +30,11 @@ import sys
 import json
 import time
 import glob
+import secrets
 import threading
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 # ── 路径 ───────────────────────────────────────────────────────
 if getattr(sys, "frozen", False):
@@ -46,7 +51,8 @@ else:
 sys.path.insert(0, RES_DIR)
 os.chdir(APP_DIR)
 
-from cupdrive.service import Core, DEFAULT_CHANS, SLEW
+from cupdrive.service import Core, DEFAULT_CHANS
+from cupdrive.safety import MultiGuard
 from cupdrive import ble as BLE
 
 CURVES_DIR = os.path.join(APP_DIR, "curves")
@@ -54,18 +60,22 @@ EXAMPLES_DIR = os.path.join(RES_DIR, "examples")
 UI_DIR = os.path.join(RES_DIR, "ui")
 WEB_DIR = os.path.join(RES_DIR, "web")
 
+TOKEN = secrets.token_urlsafe(24)
+MAX_BODY = 2_000_000
+
 # 只允许这些方法被 HTTP 调用。import_script 之类涉及任意路径的
 # 方法不开放。
 ALLOWED = {
     "scan", "connect", "mock", "disconnect", "status", "set_params",
-    "send", "stop", "panic", "list_curves", "load_curve", "import_data",
+    "begin", "send", "stop", "panic", "list_curves", "load_curve",
+    "import_data",
 }
 
 
 # ══════════════════════════════════════════════════════════════
 #  HTTP
 # ══════════════════════════════════════════════════════════════
-def make_handler(core: Core, debug=False):
+def make_handler(core: Core, token: str, debug=False):
     class Handler(BaseHTTPRequestHandler):
         server_version = "cupdrive"
 
@@ -90,32 +100,59 @@ def make_handler(core: Core, debug=False):
             self._raw(json.dumps(obj, ensure_ascii=False),
                       "application/json; charset=utf-8", code)
 
-        def _file(self, path, ctype):
+        def _page(self, path):
+            """页面里注入令牌。令牌只含 [A-Za-z0-9_-]，替换是安全的。"""
             try:
-                with open(path, "rb") as f:
-                    self._raw(f.read(), ctype)
+                with open(path, encoding="utf-8") as f:
+                    html = f.read()
+                self._raw(html.replace("__CUPR_DRIVE_TOKEN__", token),
+                          "text/html; charset=utf-8")
             except OSError:
                 self._json({"ok": False, "error": "not found"}, 404)
+
+        def _authorized(self):
+            port = self.server.server_address[1]
+            hosts = (f"127.0.0.1:{port}", f"localhost:{port}")
+            if self.headers.get("Host", "") not in hosts:
+                return False
+            origin = self.headers.get("Origin")
+            if origin and origin not in tuple("http://" + h for h in hosts):
+                return False
+            tok = self.headers.get("X-Cupdrive-Token")
+            if not tok:
+                q = parse_qs(urlparse(self.path).query)
+                tok = (q.get("token") or [""])[0]
+            return secrets.compare_digest(tok or "", token)
 
         def do_GET(self):
             core.touch()
             p = urlparse(self.path).path
-            if p == "/api/status":
-                self._json(core.status())
-            elif p == "/api/list_curves":
-                self._json(core.list_curves())
-            elif p in ("/", "/index.html"):
-                self._file(os.path.join(UI_DIR, "app.html"), "text/html; charset=utf-8")
+            if p in ("/", "/index.html"):
+                self._page(os.path.join(UI_DIR, "app.html"))
             elif p in ("/marker", "/marker/"):
-                self._file(os.path.join(WEB_DIR, "index.html"), "text/html; charset=utf-8")
+                self._page(os.path.join(WEB_DIR, "index.html"))
             elif p == "/favicon.ico":
                 self._raw(b"", "image/x-icon", 204)
+            elif p.startswith("/api/"):
+                if not self._authorized():
+                    self._json({"ok": False, "error": "forbidden"}, 403)
+                    return
+                if p == "/api/status":
+                    self._json(core.status())
+                elif p == "/api/list_curves":
+                    self._json(core.list_curves())
+                else:
+                    self._json({"ok": False, "error": "not found"}, 404)
             else:
                 self._json({"ok": False, "error": "not found"}, 404)
 
         def do_POST(self):
             core.touch()
             p = urlparse(self.path).path
+            if not self._authorized():
+                self._json({"ok": False, "error": "forbidden"}, 403)
+                return
+
             if p == "/api/quit":
                 self._json({"ok": True})
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
@@ -132,10 +169,23 @@ def make_handler(core: Core, debug=False):
 
             try:
                 n = int(self.headers.get("Content-Length") or 0)
-                body = json.loads(self.rfile.read(n) or b"{}")
+            except ValueError:
+                n = 0
+            if n > MAX_BODY:
+                self._json({"ok": False, "error": "body too large"}, 413)
+                return
+
+            raw = self.rfile.read(n) if n else b""
+            if raw:
+                try:
+                    body = json.loads(raw)
+                except Exception:
+                    self._json({"ok": False, "error": "invalid json"}, 400)
+                    return
                 if not isinstance(body, dict):
-                    body = {}
-            except Exception:
+                    self._json({"ok": False, "error": "json must be object"}, 400)
+                    return
+            else:
                 body = {}
 
             fn = getattr(core, method)
@@ -237,20 +287,28 @@ def check():
     if not cs:
         print("    （空）")
 
-    print("\n[4] 安全护栏 + Mock")
+    print("\n[4] 硬上限（直接测护栏，不限速）")
+    g = MultiGuard({0: 40, 1: 55, 2: 35}, slew_per_sec=1e9)
+    print("    请求 100/100/100 → 实际", list(g.set({0: 100, 1: 100, 2: 100})[3:7]))
+
+    print("\n[5] 播放会话 + Mock")
     core.mock()
-    print("    ", core.set_params("0,1,2", 1e9))
-    for vals in ((0, 0, 0, 0), (100, 100, 100, 0)):
-        core.send(*vals)
+    core.set_params("0,1,2")
+    gen = core.begin()["gen"]
+    for _ in range(3):
+        core.send(100, 100, 100, 0, gen=gen)
         st = core.status()
-        print(f"    请求 {vals} → 实际 {st['last']}  "
+        print(f"    gen={gen} 请求 100 → 实际 {st['last']}  "
               f"帧 {st['frame'][:24]}…")
-    print("    上限:", {BLE.CH_NAMES.get(int(k), k): v
-                        for k, v in core.status()["caps"].items()})
+    core.panic()
+    core.send(100, 100, 100, 0, gen=gen)       # 旧 gen，应被丢弃
+    st = core.status()
+    print(f"    急停后旧 gen 发送 → 实际 {st['last']}  "
+          f"（应为 0）")
 
     if cs:
         d = core.load_curve(cs[0]["path"])
-        print(f"\n[5] 载入 {d['name']}: {len(d['b'])} 点, 首值 {d['b'][:3]}")
+        print(f"\n[6] 载入 {d['name']}: {len(d['b'])} 点, 首值 {d['b'][:3]}")
 
     core.shutdown()
     print("\n" + "=" * 64)
@@ -262,14 +320,17 @@ def _post(url, method, **kw):
     req = urllib.request.Request(
         f"{url}api/{method}",
         data=json.dumps(kw).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json",
+                 "X-Cupdrive-Token": TOKEN},
         method="POST")
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read())
 
 
 def _get(url, path):
-    with urllib.request.urlopen(url + path.lstrip("/"), timeout=30) as r:
+    req = urllib.request.Request(url + path.lstrip("/"),
+                                 headers={"X-Cupdrive-Token": TOKEN})
+    with urllib.request.urlopen(req, timeout=30) as r:
         return r.status, r.read()
 
 
@@ -288,13 +349,20 @@ def selftest(url):
     step("curves", len(curves) > 0, str([c["name"] for c in curves]))
 
     step("mock", _post(url, "mock").get("ok"))
-    step("params", _post(url, "set_params", chans="0,1,2", slew=1e9).get("ok"))
-    _post(url, "send", v0=100, v1=100, v2=100, v3=0)
+    step("params", _post(url, "set_params", chans="0,1,2").get("ok"))
+
+    gen = _post(url, "begin")["gen"]
+    for _ in range(40):
+        _post(url, "send", v0=100, v1=100, v2=100, v3=0, gen=gen)
+        time.sleep(0.07)
     st = _post(url, "status")
     step("hard caps", st["last"] == [40, 55, 35, 0], str(st["last"]))
+
     _post(url, "panic")
-    st = _post(url, "status")
-    step("panic", st["last"] == [0, 0, 0, 0], str(st["last"]))
+    step("panic", _post(url, "status")["last"] == [0, 0, 0, 0])
+
+    _post(url, "send", v0=100, v1=100, v2=100, v3=0, gen=gen)
+    step("stale gen dropped", _post(url, "status")["last"] == [0, 0, 0, 0])
 
     print("[selftest] OK" if ok else "[selftest] FAIL")
     return ok
@@ -316,13 +384,14 @@ def main():
         if i + 1 < len(sys.argv):
             port = int(sys.argv[i + 1])
 
-    httpd = ThreadingHTTPServer(("127.0.0.1", port),
-                                make_handler(core, "--debug" in sys.argv))
+    httpd = ThreadingHTTPServer(
+        ("127.0.0.1", port),
+        make_handler(core, TOKEN, "--debug" in sys.argv))
     httpd.daemon_threads = True
     url = f"http://127.0.0.1:{httpd.server_address[1]}/"
 
     print("=" * 64)
-    print(f"cupdrive  http://127.0.0.1:{httpd.server_address[1]}/")
+    print(f"cupdrive  {url}")
     print(f"曲线目录  {CURVES_DIR}")
     print("=" * 64)
 
