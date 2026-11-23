@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>cupdrive</title>
+<style>
+  :root{
+    --bg:#0d0f12; --panel:#161a20; --panel2:#1e242c; --line:#242a33;
+    --text:#d8dee9; --dim:#7a8494; --hot:#ff4d3d; --acc:#33c6d4;
+    --ok:#42d17a; --warn:#ffcc55; --err:#ff5f56;
+    --vib:#33c6d4; --thr:#e0556b; --shk:#c58cff;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg);color:var(--text);
+    font:13px/1.45 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+  button{
+    background:var(--panel2);color:var(--text);border:1px solid var(--line);
+    border-radius:6px;padding:6px 12px;font:inherit;cursor:pointer;
+    transition:.12s;
+  }
+  button:hover{border-color:#3a4453;background:#28303a}
+  button:disabled{opacity:.35;cursor:default}
+  button.primary{border-color:var(--hot);color:var(--hot);font-weight:600}
+  button.primary:hover{background:#2a1512}
+  button.on{border-color:var(--ok);color:var(--ok)}
+
+  header{
+    display:flex;align-items:center;gap:9px;padding:8px 12px;
+    background:var(--panel);border-bottom:1px solid var(--line);flex:none;
+  }
+  header .title{font-weight:600;letter-spacing:.5px}
+  header .sep{width:1px;height:20px;background:var(--line)}
+  header .spacer{flex:1}
+  .pill{
+    padding:3px 9px;border-radius:20px;background:var(--panel2);
+    border:1px solid var(--line);color:var(--dim);font-size:12px;
+    font-variant-numeric:tabular-nums;white-space:nowrap;
+  }
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--dim);
+       display:inline-block;margin-right:6px;vertical-align:middle}
+  .dot.ok{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .dot.err{background:var(--err)}
+
+  main{flex:1;display:flex;min-height:0;overflow:hidden}
+  #left{flex:1;display:flex;flex-direction:column;min-width:0;background:#000;overflow:hidden}
+  #stage{flex:1;display:flex;align-items:center;justify-content:center;
+         min-height:0;position:relative;overflow:hidden}
+  video{width:100%;height:100%;object-fit:contain;outline:none;background:#000}
+  #empty{color:var(--dim);text-align:center;padding:40px;line-height:2}
+  #empty b{color:var(--text);font-weight:500}
+  #empty span{font-size:12px}
+
+  #right{
+    width:336px;flex:none;background:var(--panel);border-left:1px solid var(--line);
+    display:flex;flex-direction:column;overflow-y:auto;
+  }
+  .sec{padding:12px;border-bottom:1px solid var(--line)}
+  .sec h3{margin:0 0 8px;font-size:11px;font-weight:600;color:var(--dim);
+          letter-spacing:1px;text-transform:uppercase}
+  .row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .row:last-child{margin-bottom:0}
+  .row label{color:var(--dim);width:62px;flex:none;font-size:12px}
+  .row .val{color:var(--dim);font-variant-numeric:tabular-nums;
+            min-width:48px;text-align:right;font-size:12px}
+  input[type=range]{flex:1;accent-color:var(--hot);min-width:0}
+  select{
+    width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);
+    border-radius:6px;padding:7px 8px;font:inherit;
+  }
+  .mini{width:100%;height:56px;display:block;border-radius:4px;
+        background:var(--panel2);margin-top:8px}
+
+  .chrow{
+    display:flex;align-items:center;gap:8px;padding:8px 10px;margin-bottom:6px;
+    background:var(--panel2);border:1px solid var(--line);border-radius:6px;
+    cursor:pointer;user-select:none;
+  }
+  .chrow:last-child{margin-bottom:0}
+  .chrow:hover{border-color:#3a4453}
+  .chrow .cd{width:10px;height:10px;border-radius:3px;flex:none}
+  .chrow .cname{flex:1}
+  .chrow .ccap{color:var(--dim);font-size:11px}
+  .chrow .cst{font-size:11px;color:var(--dim);min-width:28px;text-align:right}
+  .chrow.on{border-color:#2d4a3a;background:#18251e}
+  .chrow.on .cst{color:var(--ok)}
+
+  .devlist{display:flex;flex-direction:column;gap:4px;margin-top:8px;
+           max-height:190px;overflow-y:auto}
+  .dev{
+    display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:5px;
+    background:var(--panel2);cursor:pointer;border:1px solid transparent;
+  }
+  .dev:hover{border-color:var(--line)}
+  .dev .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .dev .rs{color:var(--dim);font-size:11px}
+  .dev.target{border-color:#3a2a12}
+  .dev .star{color:var(--warn);font-size:11px}
+
+  footer{
+    flex:none;background:var(--panel);border-top:1px solid var(--line);padding:10px 14px;
+  }
+  .transport{display:flex;align-items:center;gap:12px;margin-bottom:9px}
+  #play{width:42px;height:42px;font-size:17px;border-radius:50%;padding:0}
+  #scrub{flex:1;accent-color:var(--hot)}
+  #time{font-variant-numeric:tabular-nums;color:var(--dim);
+        min-width:132px;text-align:right;font-size:12px}
+  #panic{
+    border-color:var(--hot);color:var(--hot);font-weight:600;
+    background:#241512;padding:7px 14px;
+  }
+  #panic:hover{background:#3a1a16}
+  .bars{display:flex;flex-direction:column;gap:3px}
+  .brow{display:flex;align-items:center;gap:8px;font-variant-numeric:tabular-nums}
+  .brow .tag{width:28px;color:var(--dim);font-size:11px}
+  .track{flex:1;height:9px;background:var(--panel2);border-radius:5px;overflow:hidden}
+  .fill{height:100%;width:0;transition:width .05s linear}
+  .brow .num{width:34px;text-align:right;color:var(--dim);font-size:11px}
+
+  #toast{
+    position:fixed;left:50%;bottom:120px;transform:translateX(-50%);
+    background:#241512;border:1px solid var(--hot);color:var(--hot);
+    padding:8px 16px;border-radius:8px;opacity:0;pointer-events:none;
+    transition:opacity .2s;font-size:12px;max-width:70%;z-index:50;
+  }
+  #toast.show{opacity:1}
+  #toast.ok{border-color:var(--ok);color:var(--ok);background:#12241a}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="title">cupdrive</span>
+  <span class="sep"></span>
+  <span class="pill"><span class="dot" id="dot"></span><span id="devstate">未连接</span></span>
+  <span class="pill" id="bat" hidden>—</span>
+  <span class="pill" id="stat">—</span>
+  <span class="spacer"></span>
+  <button id="btnMarker" title="在浏览器打开标定台：拖视频 → ⚡全自动 → 下载 script.json">标定台</button>
+  <button id="btnImport" title="选择标定台导出的 script.json，加工成可播放曲线">导入脚本</button>
+  <button id="btnScan">扫描设备</button>
+  <button id="btnMock">Mock 模式</button>
+  <button id="btnQuit" title="关闭 cupdrive 服务" style="color:var(--dim)">退出</button>
+</header>
+
+<main>
+  <div id="left">
+    <div id="stage">
+      <div id="empty">
+        <b>把视频拖进来</b><br>
+        或点右侧「打开视频」<br>
+        <span>视频只在本机解码，不上传</span>
+      </div>
+      <video id="vid" playsinline hidden></video>
+    </div>
+  </div>
+
+  <div id="right">
+    <div class="sec">
+      <h3>视频</h3>
+      <div class="row">
+        <button id="btnOpen" style="flex:1">打开视频</button>
+      </div>
+      <div class="row">
+        <span id="vname" style="color:var(--dim);font-size:12px;overflow:hidden;
+              text-overflow:ellipsis;white-space:nowrap">—</span>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h3>曲线</h3>
+      <select id="selCurve"></select>
+      <canvas id="mini" class="mini"></canvas>
+      <div class="row" style="margin-top:8px">
+        <span style="color:var(--dim);font-size:12px" id="cinfo">—</span>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h3>参数</h3>
+      <div class="row">
+        <label>强度</label>
+        <input type="range" id="scale" min="20" max="100" value="85">
+        <span class="val" id="scaleV">85%</span>
+      </div>
+      <div class="row">
+        <label>提前量</label>
+        <input type="range" id="offset" min="-500" max="1000" step="50" value="0">
+        <span class="val" id="offsetV">0ms</span>
+      </div>
+      <div class="row">
+        <label>伸缩滞后</label>
+        <input type="range" id="lag" min="0" max="2000" step="100" value="800">
+        <span class="val" id="lagV">0.8s</span>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h3>通道（安全上限固定）</h3>
+      <div class="chrow on" id="ch1">
+        <span class="cd" style="background:var(--vib)"></span>
+        <span class="cname">振动</span>
+        <span class="ccap">≤55</span>
+        <span class="cst">开</span>
+      </div>
+      <div class="chrow" id="ch0">
+        <span class="cd" style="background:var(--thr)"></span>
+        <span class="cname">伸缩</span>
+        <span class="ccap">≤40 · 机械</span>
+        <span class="cst">关</span>
+      </div>
+      <div class="chrow" id="ch2">
+        <span class="cd" style="background:var(--shk)"></span>
+        <span class="cname">抖动</span>
+        <span class="ccap">≤35</span>
+        <span class="cst">关</span>
+      </div>
+    </div>
+
+    <div class="sec">
+      <h3>设备</h3>
+      <div class="row">
+        <button id="btnDisconnect" style="flex:1;font-size:12px">断开连接</button>
+      </div>
+      <div class="devlist" id="devlist">
+        <span style="color:var(--dim);font-size:12px">点「扫描设备」查找</span>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="transport">
+    <button id="play" class="primary">▶</button>
+    <input type="range" id="scrub" min="0" max="1000" value="0">
+    <span id="time">00:00.0 / 00:00.0</span>
+    <button id="panic" title="立即归零（Esc）">紧急停止</button>
+  </div>
+  <div class="bars">
+    <div class="brow">
+      <span class="tag">振动</span>
+      <div class="track"><div class="fill" id="f_vib" style="background:var(--vib)"></div></div>
+      <span class="num" id="n_vib">0</span>
+    </div>
+    <div class="brow">
+      <span class="tag">伸缩</span>
+      <div class="track"><div class="fill" id="f_thr" style="background:var(--thr)"></div></div>
+      <span class="num" id="n_thr">0</span>
+    </div>
+    <div class="brow">
+      <span class="tag">抖动</span>
+      <div class="track"><div class="fill" id="f_shk" style="background:var(--shk)"></div></div>
+      <span class="num" id="n_shk">0</span>
+    </div>
+  </div>
+</footer>
+
+<div id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+
+const CH = {THRUST:0, VIB:1, SHK:2};
+const SEND_HZ = 10;
+
+let curve = null;          // {b, hz, duration, name, source}
+let curveItems = [];
+let playing = false;
+let raf = 0;
+let sendTimer = 0;
+let lastBars = 0;
+let connected = false;
+let mock = false;
+
+// 通道开关：默认只开振动。机械通道必须显式确认。
+const chans = {0:false, 1:true, 2:false};
+
+const vid = $('#vid');
+
+// ── HTTP 桥 ────────────────────────────────────────────────────
+async function call(method, params={}){
+  const r = await fetch('/api/' + method, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(params),
+  });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return await r.json();
+}
+
+async function getJSON(path){
+  const r = await fetch(path);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return await r.json();
+}
+
+// ── 提示 ───────────────────────────────────────────────────────
+let toastTimer = 0;
+function toast(msg, ok=false){
+  const t = $('#toast');
+  t.textContent = msg;
+  t.className = 'show' + (ok ? ' ok' : '');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.className = '', 2800);
+}
+
+// ── 状态 ───────────────────────────────────────────────────────
+function setDevState(){
+  const dot = $('#dot'), txt = $('#devstate');
+  if (mock){ dot.className = 'dot ok'; txt.textContent = 'Mock'; return; }
+  if (connected){ dot.className = 'dot ok'; txt.textContent = '已连接'; return; }
+  dot.className = 'dot'; txt.textContent = '未连接';
+}
+
+async function refreshStatus(){
+  let s;
+  try{ s = await call('status'); }catch(e){ return; }
+  const was = connected;
+  connected = !!s.connected;
+  mock = !!s.mock;
+  setDevState();
+
+  $('#stat').textContent = `${s.sent} 帧`;
+  $('#bat').hidden = (s.battery == null);
+  if (s.battery != null)
+    $('#bat').textContent = `${s.battery.toFixed(0)}% ${s.volt ? s.volt.toFixed(2)+'V' : ''}`;
+
+  if (s.error) toast(s.error);
+
+  // 播放中掉线 → 立刻停
+  if (playing && was && !connected && !mock){
+    pausePlayback(true);
+    toast('设备断开，已停止');
+  }
+  setBars(s.last);
+}
+
+function setBars(v){
+  const map = [[1,'vib'],[0,'thr'],[2,'shk']];
+  for (const [ch, id] of map){
+    const x = (v && v[ch]) || 0;
+    $('#f_'+id).style.width = Math.max(0, Math.min(100, x)) + '%';
+    $('#n_'+id).textContent = Math.round(x);
+  }
+}
+
+// ── 格式化 ─────────────────────────────────────────────────────
+function fmt(t){
+  t = (isFinite(t) && t > 0) ? t : 0;   // WebM 可能报 Infinity/NaN
+  const m = Math.floor(t/60), s = t - m*60;
+  return `${String(m).padStart(2,'0')}:${s.toFixed(1).padStart(4,'0')}`;
+}
+
+// ── 曲线 ───────────────────────────────────────────────────────
+async function loadCurveList(selectPath=null){
+  try{ curveItems = await getJSON('/api/list_curves'); }catch(e){ curveItems = []; }
+  const sel = $('#selCurve');
+  sel.innerHTML = '';
+  if (!curveItems.length){
+    sel.innerHTML = '<option value="">没有曲线</option>';
+    $('#cinfo').textContent = '点「导入脚本」或「标定台」';
+    curve = null;
+    drawMini();
+    return;
+  }
+  for (const it of curveItems){
+    const o = document.createElement('option');
+    o.value = it.path;
+    o.textContent = `${it.name}  ·  ${fmt(it.duration)}`;
+    sel.appendChild(o);
+  }
+  const pick = selectPath || sel.value || curveItems[0].path;
+  sel.value = pick;
+  await selectCurve(pick);
+}
+
+async function selectCurve(path){
+  if (!path) return;
+  try{ curve = await call('load_curve', {path}); }
+  catch(e){ toast('载入曲线失败: ' + e); return; }
+  $('#cinfo').textContent =
+    `${curve.b.length} 点 @ ${curve.hz}Hz · ${fmt(curve.duration)}`;
+  $('#scrub').value = 0;
+  drawMini();
+  updateTime();
+}
+
+function curveBySource(filename){
+  if (!filename) return null;
+  const base = filename.split(/[\\/]/).pop().toLowerCase();
+  return curveItems.find(it => (it.source || '').split(/[\\/]/).pop().toLowerCase() === base)
+      || curveItems.find(it => base.replace(/\.[^.]+$/,'') ===
+                               (it.name || '').replace(/\.tuned\.json$/,'').toLowerCase())
+      || null;
+}
+
+// ── mini 曲线 ──────────────────────────────────────────────────
+function drawMini(progress=0){
+  const c = $('#mini');
+  const g = c.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  c.width = c.clientWidth * dpr;
+  c.height = c.clientHeight * dpr;
+  g.scale(dpr, dpr);
+  const W = c.clientWidth, H = c.clientHeight;
+  g.clearRect(0,0,W,H);
+  if (!curve || !curve.b.length) return;
+
+  g.beginPath();
+  const n = curve.b.length;
+  for (let x = 0; x < W; x++){
+    const i = Math.min(n-1, Math.floor(x * n / W));
+    const y = H - (curve.b[i]/100) * (H-2) - 1;
+    x === 0 ? g.moveTo(x,y) : g.lineTo(x,y);
+  }
+  g.strokeStyle = 'rgba(51,198,212,.8)';
+  g.lineWidth = 1;
+  g.stroke();
+
+  if (progress > 0){
+    g.fillStyle = 'rgba(255,255,255,.13)';
+    g.fillRect(0, 0, W * Math.min(1, progress), H);
+  }
+}
+
+// ── 播放 ───────────────────────────────────────────────────────
+function updateTime(){
+  const vd = (isFinite(vid.duration) && vid.duration > 0) ? vid.duration : 0;
+  const d = vd || (curve ? curve.duration : 0);
+  $('#time').textContent = `${fmt(vid.currentTime)} / ${fmt(d)}`;
+  if (vd){
+    $('#scrub').value = Math.round(vid.currentTime / vd * 1000);
+  }
+}
+
+// 发送走独立定时器：rAF 在窗口切后台时会被节流到 ~2Hz，
+// 导致设备动作断断续续。UI 刷新仍用 rAF。
+function tick(){
+  if (!playing) return;
+  const now = performance.now();
+  if (now - lastBars >= 120){
+    lastBars = now;
+    updateTime();
+    drawMini(isFinite(vid.duration) && vid.duration > 0
+             ? vid.currentTime / vid.duration : 0);
+  }
+  raf = requestAnimationFrame(tick);
+}
+
+function sendAt(t){
+  if (!curve || !curve.b.length) return;
+  const hz = curve.hz || 10;
+  const offset = (+$('#offset').value) / 1000;
+  const lag = (+$('#lag').value) / 1000;
+  const scale = (+$('#scale').value) / 100;
+  const n = curve.b.length;
+
+  const vals = [0,0,0,0];
+  for (const k of Object.keys(chans)){
+    if (!chans[k]) continue;
+    const ch = +k;
+    const ii = Math.round((t + offset - (ch === CH.THRUST ? lag : 0)) * hz);
+    vals[ch] = (ii < 0 || ii >= n) ? 0 : Math.max(0, Math.min(100, curve.b[ii] * scale));
+  }
+  call('send', {v0: vals[0], v1: vals[1], v2: vals[2], v3: vals[3]}).catch(()=>{});
+  setBars(vals);
+}
+
+function startSendTimer(){
+  clearInterval(sendTimer);
+  sendTimer = setInterval(() => {
+    if (playing) sendAt(vid.currentTime);
+  }, 1000 / SEND_HZ);
+}
+
+function stopSendTimer(){
+  clearInterval(sendTimer);
+  sendTimer = 0;
+}
+
+async function startPlayback(){
+  if (!vid.src){ toast('先打开一个视频'); return; }
+  if (!curve){ toast('先选一条曲线'); return; }
+
+  await refreshStatus();
+  if (!mock && !connected){
+    toast('还没连设备。可以先点「Mock 模式」演练');
+    return;
+  }
+  playing = true;
+  $('#play').textContent = '❚❚';
+  try{ await vid.play(); }catch(e){ toast('播放失败: ' + e); }
+  startSendTimer();
+  tick();
+}
+
+function pausePlayback(silent=false){
+  playing = false;
+  $('#play').textContent = '▶';
+  cancelAnimationFrame(raf);
+  stopSendTimer();
+  try{ vid.pause(); }catch(e){}
+  call('stop').catch(()=>{});
+  setBars([0,0,0,0]);
+  if (!silent) refreshStatus();
+}
+
+async function panic(){
+  playing = false;
+  $('#play').textContent = '▶';
+  cancelAnimationFrame(raf);
+  stopSendTimer();
+  try{ vid.pause(); }catch(e){}
+  try{ await call('panic'); }catch(e){}
+  setBars([0,0,0,0]);
+  toast('已归零', true);
+}
+
+// ── 设备 ───────────────────────────────────────────────────────
+async function scan(){
+  const box = $('#devlist');
+  box.innerHTML = '<span style="color:var(--dim);font-size:12px">扫描中（约 6 秒）…</span>';
+  let r;
+  try{ r = await call('scan', {sec: 6}); }
+  catch(e){
+    box.innerHTML = `<span style="color:var(--err);font-size:12px">${e}</span>`;
+    return;
+  }
+  box.innerHTML = '';
+  if (!r.devices || !r.devices.length){
+    box.innerHTML = '<span style="color:var(--dim);font-size:12px">没找到。手机 App 彻底杀掉了吗？</span>';
+    return;
+  }
+  for (const d of r.devices){
+    if (!d.name) continue;
+    const el = document.createElement('div');
+    el.className = 'dev' + (d.target ? ' target' : '');
+    el.innerHTML = `<span class="nm">${d.name}</span>
+      <span class="rs">${d.rssi == null ? '' : d.rssi + ' dBm'}</span>
+      ${d.target ? '<span class="star">★</span>' : ''}`;
+    el.onclick = () => connect(d.address, d.name);
+    box.appendChild(el);
+  }
+}
+
+async function connect(address, name){
+  toast('连接 ' + name + ' …');
+  let r;
+  try{ r = await call('connect', {address, name}); }
+  catch(e){ toast('连接失败: ' + e); return; }
+  if (r.ok){
+    mock = false; connected = true;
+    setDevState();
+    toast('已连接 ' + name, true);
+    await refreshStatus();
+  } else {
+    toast('连接失败: ' + (r.error || ''));
+  }
+}
+
+async function useMock(){
+  try{ await call('mock'); }catch(e){}
+  mock = true; connected = true;
+  setDevState();
+  toast('Mock 模式：只走时序，不连设备', true);
+}
+
+// ── 通道 ───────────────────────────────────────────────────────
+async function applyParams(){
+  const list = Object.keys(chans).filter(k => chans[k]).join(',') || '1';
+  try{ await call('set_params', {chans: list, slew: 25}); }catch(e){}
+}
+
+function renderChans(){
+  for (const ch of [0,1,2]){
+    const el = $('#ch' + ch);
+    el.classList.toggle('on', !!chans[ch]);
+    el.querySelector('.cst').textContent = chans[ch] ? '开' : '关';
+  }
+}
+
+async function toggleChan(ch){
+  if (ch !== CH.VIB && !chans[ch]){
+    const names = {0:'伸缩', 2:'抖动'};
+    const caps = {0:40, 2:35};
+    if (!confirm(`${names[ch]} 是机械/强振通道，上限 ${caps[ch]}。\n开启前请把手拿开。确认开启？`))
+      return;
+  }
+  chans[ch] = !chans[ch];
+  if (!chans[0] && !chans[1] && !chans[2]) chans[CH.VIB] = true;
+  renderChans();
+  await applyParams();
+}
+
+// ── 导入脚本 ───────────────────────────────────────────────────
+async function importScript(){
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.json,application/json';
+  inp.onchange = async () => {
+    const f = inp.files[0];
+    if (!f) return;
+    const btn = $('#btnImport');
+    btn.disabled = true;
+    btn.textContent = '加工中…';
+    let r;
+    try{
+      const text = await f.text();
+      r = await call('import_data', {name: f.name, text});
+    }catch(e){
+      r = {ok: false, error: String(e)};
+    }
+    btn.disabled = false;
+    btn.textContent = '导入脚本';
+    if (!r.ok){ toast('加工失败: ' + (r.error || '')); return; }
+    await loadCurveList(r.path);
+    toast(`已导入 ${r.name} · ${fmt(r.duration)}` + (r.has_mv ? ' · 含画面融合' : ''), true);
+  };
+  inp.click();
+}
+
+// ── 视频 ───────────────────────────────────────────────────────
+function setVideoFile(f){
+  if (!f) return;
+  if (vid.src) URL.revokeObjectURL(vid.src);
+  vid.src = URL.createObjectURL(f);
+  vid.hidden = false;
+  $('#empty').hidden = true;
+  $('#vname').textContent = f.name;
+  vid.load();
+
+  const hit = curveBySource(f.name);
+  if (hit && hit.path !== $('#selCurve').value){
+    $('#selCurve').value = hit.path;
+    selectCurve(hit.path);
+    toast('已自动匹配曲线 ' + hit.name, true);
+  }
+}
+
+// ── 事件 ───────────────────────────────────────────────────────
+$('#btnOpen').onclick = () => {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'video/*';
+  inp.onchange = () => setVideoFile(inp.files[0]);
+  inp.click();
+};
+
+$('#btnScan').onclick = scan;
+$('#btnMock').onclick = useMock;
+$('#btnMarker').onclick = () => window.open('/marker', '_blank');
+$('#btnImport').onclick = importScript;
+$('#play').onclick = () => playing ? pausePlayback() : startPlayback();
+$('#panic').onclick = panic;
+
+$('#btnDisconnect').onclick = async () => {
+  try{ await call('disconnect'); }catch(e){}
+  connected = false; mock = false;
+  setDevState();
+  setBars([0,0,0,0]);
+  toast('已断开');
+};
+
+$('#btnQuit').onclick = async () => {
+  if (!confirm('关闭 cupdrive 服务？')) return;
+  try{ await call('quit'); }catch(e){}
+  document.body.innerHTML =
+    '<div style="margin:auto;color:#7a8494;font:14px system-ui">cupdrive 已退出，可以关闭这个窗口。</div>';
+};
+
+$('#selCurve').onchange = e => selectCurve(e.target.value);
+
+$('#scrub').oninput = e => {
+  if (!vid.duration) return;
+  vid.currentTime = e.target.value / 1000 * vid.duration;
+  updateTime();
+  drawMini(e.target.value / 1000);
+};
+
+$('#scale').oninput = e => $('#scaleV').textContent = e.target.value + '%';
+$('#offset').oninput = e => $('#offsetV').textContent = e.target.value + 'ms';
+$('#lag').oninput = e => $('#lagV').textContent =
+  (e.target.value / 1000).toFixed(1) + 's';
+
+for (const ch of [0,1,2]) $('#ch' + ch).onclick = () => toggleChan(ch);
+
+vid.onended = () => {
+  playing = false;
+  $('#play').textContent = '▶';
+  cancelAnimationFrame(raf);
+  stopSendTimer();
+  call('stop').catch(()=>{});
+  setBars([0,0,0,0]);
+  updateTime();
+};
+
+vid.onloadedmetadata = () => {
+  updateTime();
+  const vd = (isFinite(vid.duration) && vid.duration > 0) ? vid.duration : 0;
+  if (curve && vd && Math.abs(vd - curve.duration) > 1.0){
+    toast(`视频 ${fmt(vd)} / 曲线 ${fmt(curve.duration)}，长度不一致`);
+  }
+};
+
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  const f = [...e.dataTransfer.files].find(f => f.type.startsWith('video/'));
+  if (f) setVideoFile(f);
+});
+
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.key === ' '){ e.preventDefault(); playing ? pausePlayback() : startPlayback(); }
+  else if (e.key === 'Escape'){ e.preventDefault(); panic(); }
+});
+
+window.addEventListener('beforeunload', () => {
+  // 关页面时尽力归零；服务端还有空闲超时兜底
+  try{ navigator.sendBeacon('/api/panic'); }catch(e){}
+});
+
+// ── 启动 ───────────────────────────────────────────────────────
+(async function init(){
+  renderChans();
+  await applyParams();
+  await loadCurveList();
+  await refreshStatus();
+  setInterval(refreshStatus, 500);
+})();
+</script>
+</body>
+</html>

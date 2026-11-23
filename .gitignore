@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+release/
+
+# Outputs
+*.wav
+out/
+curves/
+tuned.json
+*.script.json
+
+# Extracted app assets - large, regenerate with tools/
+apk_src/
+report/
+_probe/
+
+# Local
+.DS_Store
+Thumbs.db
+*.log

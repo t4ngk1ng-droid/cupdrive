@@ -1,0 +1,890 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>cupdrive · 标定台</title>
+<style>
+  :root{
+    --bg:#0d0f12; --panel:#161a20; --line:#242a33; --fg:#d8dee9;
+    --dim:#7a8494; --a:#e0556b; --b:#33c6d4; --hot:#ffcc55;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg); color:var(--fg);
+    font:13px/1.5 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  #drop{
+    position:fixed; inset:0; background:rgba(13,15,18,.94);
+    display:flex; align-items:center; justify-content:center;
+    flex-direction:column; gap:14px; z-index:99; cursor:pointer;
+    border:2px dashed var(--line);
+  }
+  #drop.hide{display:none}
+  #drop h1{font-size:20px;font-weight:500;letter-spacing:.5px}
+  #drop p{color:var(--dim);font-size:13px;text-align:center;line-height:1.9}
+  #drop b{color:var(--b);font-weight:500}
+  header{
+    display:flex; align-items:center; gap:10px; padding:8px 12px;
+    background:var(--panel); border-bottom:1px solid var(--line); flex:none;
+  }
+  button{
+    background:#1e242c; color:var(--fg); border:1px solid var(--line);
+    border-radius:5px; padding:5px 11px; cursor:pointer; font:inherit;
+    transition:.12s;
+  }
+  button:hover{background:#28303a;border-color:#3a4453}
+  button.on{background:var(--b);color:#08181b;border-color:var(--b);font-weight:600}
+  button:disabled{opacity:.35;cursor:default}
+  .sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+  .name{color:var(--dim);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #stage{
+    flex:1; display:flex; flex-direction:column; min-height:0;
+  }
+  #vwrap{
+    flex:none; display:flex; justify-content:center; background:#000;
+    overflow:hidden;
+  }
+  #vwrap video{max-height:38vh;max-width:100%;display:block}
+  #edits{
+    flex:1; display:flex; flex-direction:column; min-height:0;
+    background:var(--panel); border-top:1px solid var(--line);
+  }
+  .track{position:relative;flex:1;min-height:70px;border-bottom:1px solid var(--line)}
+  .track:last-of-type{border-bottom:none}
+  .track .lbl{
+    position:absolute;left:8px;top:6px;font-size:11px;letter-spacing:.6px;
+    z-index:2;pointer-events:none;font-weight:600;
+  }
+  .track .hint{
+    position:absolute;right:8px;top:6px;font-size:11px;color:var(--dim);
+    z-index:2;pointer-events:none;
+  }
+  canvas{display:block;width:100%;height:100%;cursor:crosshair}
+  footer{
+    flex:none; display:flex; align-items:center; gap:10px;
+    padding:7px 12px; background:var(--panel); border-top:1px solid var(--line);
+    font-size:12px;
+  }
+  #scrub{flex:1;accent-color:var(--b);height:4px}
+  #time{font-variant-numeric:tabular-nums;color:var(--dim);min-width:150px}
+  #stat{color:var(--dim);font-variant-numeric:tabular-nums}
+  .pill{
+    background:#1e242c;border:1px solid var(--line);border-radius:20px;
+    padding:2px 9px;font-variant-numeric:tabular-nums;
+  }
+</style>
+</head>
+<body>
+
+<div id="drop">
+  <h1>cupdrive · 标定台</h1>
+  <p>
+    把视频拖进来，或点这里选择文件<br>
+    <b>左键拖动</b> 画曲线　<b>滚轮</b> 缩放　<b>中键</b> 平移<br>
+    <b>1</b> 画笔　<b>2</b> 橡皮　<b>3</b> 选区　<b>Ctrl+Z</b> 撤销　<b>空格</b> 播放/暂停
+  </p>
+  <input type="file" id="file" accept="video/*" style="display:none">
+</div>
+
+<header>
+  <button id="open">打开视频</button>
+  <span class="name" id="fname">未加载</span>
+  <div class="sep"></div>
+  <button id="m1" class="on" title="画笔">画笔</button>
+  <button id="m2" title="橡皮">橡皮</button>
+  <button id="m3" title="选区">选区</button>
+  <div class="sep"></div>
+  <span style="color:var(--dim)">目标</span>
+  <button id="tA" class="on" style="border-color:var(--a)">强度</button>
+  <button id="tB" style="border-color:var(--b)">表现</button>
+  <div class="sep"></div>
+  <span style="color:var(--dim)">值</span>
+  <input type="range" id="val" min="0" max="100" value="50" style="width:110px;accent-color:var(--hot)">
+  <span id="valtxt" class="pill">50</span>
+  <div class="sep"></div>
+  <button id="undo" disabled>撤销</button>
+  <button id="scan" title="扫描音频响度 + 画面运动">扫描</button>
+  <button id="fill" title="用表现轨按 B 模式规则从强度轨生成">生成表现</button>
+  <button id="auto" style="border-color:var(--hot);color:var(--hot);font-weight:600"
+          title="扫描 + 合成表现 + 自动导出, 一键到底">⚡ 全自动</button>
+  <div style="flex:1"></div>
+  <button id="save">保存草稿</button>
+  <button id="export">导出 JSON</button>
+</header>
+
+<div id="stage">
+  <div id="vwrap"><video id="vid" playsinline></video></div>
+  <div id="edits">
+    <div class="track">
+      <span class="lbl" style="color:var(--a)">强度 A · 素材本身有多激烈</span>
+      <span class="hint" id="hintA">—</span>
+      <canvas id="ca"></canvas>
+    </div>
+    <div class="track">
+      <span class="lbl" style="color:var(--b)">表现 B · 设备此刻该怎么做</span>
+      <span class="hint" id="hintB">—</span>
+      <canvas id="cb"></canvas>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <button id="play">▶</button>
+  <input type="range" id="scrub" min="0" max="1000" value="0">
+  <span id="time">00:00.0 / 00:00.0</span>
+  <span class="pill" id="stat">—</span>
+</footer>
+
+<script>
+(() => {
+'use strict';
+
+// ── 状态 ────────────────────────────────────────────────────────
+const HZ = 10;               // 采样率
+const S = {
+  video: null,
+  dur: 0,
+  a: new Float32Array(0),    // 0..100
+  b: new Float32Array(0),
+  view0: 0, view1: 10,       // 可视时间窗
+  mode: 1,                   // 1画笔 2橡皮 3选区
+  target: 'a',
+  val: 50,
+  brushSec: 0.08,
+  undo: [], redo: [],
+  drawing: false,
+  lastT: null,
+  sel0: null, sel1: null,
+  scrubbing: false,
+  ready: false,
+  mv: null,          // 画面运动轨(扫描产生)
+  cut: null,         // 切镜标记
+  scanning: false,
+};
+
+const $ = s => document.querySelector(s);
+const vid = $('#vid');
+const ca = $('#ca'), cb = $('#cb');
+const ga = ca.getContext('2d'), gb = cb.getContext('2d');
+
+// ── 工具 ────────────────────────────────────────────────────────
+const clamp = (v,a,b) => v<a?a:v>b?b:v;
+const fmt = t => {
+  t = Math.max(0,t||0);
+  const m = Math.floor(t/60), s = t%60;
+  return String(m).padStart(2,'0')+':'+ (s<10?'0':'') + s.toFixed(1);
+};
+
+function alloc(n){
+  return {a:new Float32Array(n), b:new Float32Array(n)};
+}
+
+function ensure(n){
+  if (S.a.length === n) return;
+  const na = new Float32Array(n), nb = new Float32Array(n);
+  na.set(S.a.subarray(0, Math.min(n, S.a.length)));
+  nb.set(S.b.subarray(0, Math.min(n, S.b.length)));
+  S.a = na; S.b = nb;
+}
+
+function snap(){
+  S.undo.push({a:S.a.slice(), b:S.b.slice()});
+  if (S.undo.length > 60) S.undo.shift();
+  S.redo.length = 0;
+  $('#undo').disabled = false;
+}
+
+function undo(){
+  if (!S.undo.length) return;
+  S.redo.push({a:S.a.slice(), b:S.b.slice()});
+  const p = S.undo.pop();
+  S.a = p.a; S.b = p.b;
+  $('#undo').disabled = S.undo.length === 0;
+  draw();
+}
+
+// ── 画布 ────────────────────────────────────────────────────────
+function fit(canvas, ctx){
+  const dpr = window.devicePixelRatio || 1;
+  const r = canvas.getBoundingClientRect();
+  const w = Math.max(1, Math.round(r.width * dpr));
+  const h = Math.max(1, Math.round(r.height * dpr));
+  if (canvas.width !== w || canvas.height !== h){
+    canvas.width = w; canvas.height = h;
+  }
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return {w:r.width, h:r.height};
+}
+
+function drawTrack(canvas, ctx, arr, color, fillRgba, ghost){
+  const {w,h} = fit(canvas, ctx);
+  ctx.clearRect(0,0,w,h);
+  const yOf = v => h - (clamp(v,0,100)/100)*h;
+
+  // 背景网格
+  ctx.strokeStyle = 'rgba(255,255,255,.045)';
+  ctx.lineWidth = 1;
+  for (let i=1;i<4;i++){
+    const y = h*i/4;
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+  }
+  for (let i=1;i<10;i++){
+    const x = w*i/10;
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke();
+  }
+
+  if (!S.ready || !arr.length) return;
+
+  const t0 = S.view0, t1 = S.view1;
+  const span = Math.max(1e-6, t1-t0);
+  const n = arr.length;
+
+  // 选区高亮
+  if (S.sel0 != null && S.sel1 != null && S.mode === 3){
+    const x0 = (S.sel0 - t0)/span*w, x1 = (S.sel1 - t0)/span*w;
+    ctx.fillStyle = 'rgba(255,204,85,.13)';
+    ctx.fillRect(Math.min(x0,x1),0,Math.abs(x1-x0),h);
+  }
+
+  // 画面运动参考线(灰虚线, 仅 A 轨显示)
+  if (ghost && ghost.length === n){
+    ctx.beginPath();
+    let gs = false;
+    for (let x=0; x<=w; x++){
+      const t = t0 + (x/w)*span;
+      const gi = Math.round(t*HZ);
+      if (gi < 0 || gi >= ghost.length) continue;
+      const gy = yOf(ghost[gi]);
+      if (!gs){ ctx.moveTo(x,gy); gs = true; }
+      else ctx.lineTo(x,gy);
+    }
+    ctx.strokeStyle = 'rgba(200,210,225,.30)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3,3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // 曲线
+  ctx.beginPath();
+  let started = false;
+  for (let x=0; x<=w; x++){
+    const t = t0 + (x/w)*span;
+    const idx = Math.round(t*HZ);
+    if (idx < 0 || idx >= n) continue;
+    const y = yOf(arr[idx]);
+    if (!started){ ctx.moveTo(x,y); started = true; }
+    else ctx.lineTo(x,y);
+  }
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+
+  // 填充
+  if (started){
+    ctx.lineTo(w,h); ctx.lineTo(0,h); ctx.closePath();
+    ctx.fillStyle = fillRgba;
+    ctx.fill();
+  }
+
+  // 播放头
+  const vt = vid.currentTime || 0;
+  if (vt >= t0 && vt <= t1){
+    const x = (vt-t0)/span*w;
+    ctx.strokeStyle = 'rgba(255,255,255,.55)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke();
+  }
+}
+
+function draw(){
+  drawTrack(ca, ga, S.a, '#e0556b', 'rgba(224,85,107,.16)', S.mv);
+  drawTrack(cb, gb, S.b, '#33c6d4', 'rgba(51,198,212,.16)', null);
+
+  if (S.ready){
+    const t = vid.currentTime || 0;
+    const i = clamp(Math.round(t*HZ), 0, S.a.length-1);
+    const av = Math.round(S.a[i]||0), bv = Math.round(S.b[i]||0);
+    $('#hintA').textContent = av;
+    $('#hintB').textContent = bv;
+    $('#stat').textContent = `A ${av}  B ${bv}  Δ ${bv-av}`;
+  }
+}
+
+// ── 坐标 ↔ 时间 ─────────────────────────────────────────────────
+function xToT(canvas, clientX){
+  const r = canvas.getBoundingClientRect();
+  const span = S.view1 - S.view0;
+  return S.view0 + clamp((clientX-r.left)/r.width,0,1)*span;
+}
+function yToV(canvas, clientY){
+  const r = canvas.getBoundingClientRect();
+  return clamp((1 - (clientY-r.top)/r.height),0,1)*100;
+}
+
+// ── 编辑 ────────────────────────────────────────────────────────
+function writeAt(t, v, erase){
+  if (!S.ready) return;
+  const arr = S.target === 'a' ? S.a : S.b;
+  const center = t*HZ;
+  const half = Math.max(0.5, S.brushSec*HZ);
+  const i0 = Math.max(0, Math.floor(center-half));
+  const i1 = Math.min(arr.length-1, Math.ceil(center+half));
+  for (let i=i0;i<=i1;i++){
+    const d = Math.abs(i-center)/half;
+    const w = 1 - d;                 // 三角核
+    if (w <= 0) continue;
+    if (erase){
+      const cur = arr[i];
+      arr[i] = cur * (1-w);
+    } else {
+      arr[i] = arr[i]*(1-w) + v*w;
+    }
+  }
+}
+
+function strokeTo(canvas, ev){
+  const t = xToT(canvas, ev.clientX);
+  const v = S.mode === 2 ? 0 : yToV(canvas, ev.clientY);
+  const erase = S.mode === 2;
+
+  // 与上一次位置之间插值, 避免快速拖动断点
+  if (S.lastT != null){
+    const dt = t - S.lastT;
+    const steps = Math.min(200, Math.max(1, Math.ceil(Math.abs(dt)*HZ*2)));
+    for (let k=1;k<=steps;k++){
+      writeAt(S.lastT + dt*k/steps, v, erase);
+    }
+  } else {
+    writeAt(t, v, erase);
+  }
+  S.lastT = t;
+  draw();
+}
+
+function bindTrack(canvas){
+  canvas.addEventListener('pointerdown', e => {
+    if (!S.ready) return;
+    if (e.button === 1){ // 中键平移
+      S.panning = {x:e.clientX, v0:S.view0, v1:S.view1};
+      canvas.setPointerCapture(e.pointerId);
+      return;
+    }
+    if (e.button !== 0) return;
+    if (!vid.paused) vid.pause();
+
+    if (S.mode === 3){
+      S.sel0 = xToT(canvas, e.clientX);
+      S.sel1 = S.sel0;
+      S.selecting = true;
+      canvas.setPointerCapture(e.pointerId);
+      draw();
+      return;
+    }
+    snap();
+    S.drawing = true;
+    S.lastT = null;
+    canvas.setPointerCapture(e.pointerId);
+    strokeTo(canvas, e);
+  });
+
+  canvas.addEventListener('pointermove', e => {
+    if (S.panning){
+      const r = canvas.getBoundingClientRect();
+      const span = S.panning.v1 - S.panning.v0;
+      const dt = (e.clientX - S.panning.x)/r.width*span;
+      S.view0 = S.panning.v0 - dt;
+      S.view1 = S.panning.v1 - dt;
+      clampView();
+      draw();
+      return;
+    }
+    if (S.selecting){
+      S.sel1 = xToT(canvas, e.clientX);
+      draw();
+      return;
+    }
+    if (S.drawing) strokeTo(canvas, e);
+  });
+
+  canvas.addEventListener('pointerup', e => {
+    if (S.panning){ S.panning = null; return; }
+    if (S.selecting){
+      S.selecting = false;
+      if (Math.abs(S.sel1-S.sel0) < 0.02){ S.sel0 = S.sel1 = null; }
+      draw();
+      return;
+    }
+    if (S.drawing){ S.drawing = false; S.lastT = null; }
+  });
+
+  canvas.addEventListener('wheel', e => {
+    if (!S.ready) return;
+    e.preventDefault();
+    const t = xToT(canvas, e.clientX);
+    const cur = S.view1 - S.view0;
+    const k = e.deltaY > 0 ? 1.18 : 1/1.18;
+    let span = clamp(cur*k, 0.4, S.dur || 600);
+    const frac = (t - S.view0)/cur;
+    S.view0 = t - span*frac;
+    S.view1 = S.view0 + span;
+    clampView();
+    draw();
+  }, {passive:false});
+}
+
+function clampView(){
+  const span = S.view1 - S.view0;
+  const d = S.dur || 10;
+  if (span >= d){ S.view0 = 0; S.view1 = d; return; }
+  S.view0 = clamp(S.view0, 0, d - span);
+  S.view1 = S.view0 + span;
+}
+
+// ── 载入 ────────────────────────────────────────────────────────
+function loadFile(file){
+  const url = URL.createObjectURL(file);
+  vid.src = url;
+  $('#fname').textContent = file.name;
+  $('#drop').classList.add('hide');
+
+  vid.onloadedmetadata = () => {
+    S.dur = vid.duration || 0;
+    const n = Math.max(1, Math.ceil(S.dur*HZ));
+    ensure(n);
+    S.view0 = 0;
+    S.view1 = Math.min(S.dur, 10);
+    S.ready = true;
+    $('#scrub').max = String(Math.max(1,Math.round(S.dur*10)));
+    restoreDraft(file.name);
+    draw();
+  };
+}
+
+// ── 音频预填 ────────────────────────────────────────────────────
+let actx = null, srcNode = null, muteGain = null;
+function initAudio(){
+  if (actx) return;
+  actx = new (window.AudioContext||window.webkitAudioContext)();
+  srcNode = actx.createMediaElementSource(vid);
+  muteGain = actx.createGain();
+  muteGain.gain.value = 0;
+  srcNode.connect(muteGain);
+  muteGain.connect(actx.destination);
+}
+
+async function scanAudio(){
+  if (!S.ready) return;
+  if (S.scanning) return;
+  initAudio();
+  if (actx.state === 'suspended') await actx.resume();
+  S.scanning = true;
+
+  snap();
+  const n = S.a.length;
+  const accA = new Float32Array(n);
+  const accV = new Float32Array(n);
+  const accC = new Float32Array(n);
+  const cntA = new Uint16Array(n);
+  const cntV = new Uint16Array(n);
+  let peakA = 0, peakV = 0;
+
+  // 音频: ScriptProcessor 在音频线程采样, 最小化也不会中断
+  const proc = actx.createScriptProcessor(2048, 1, 1);
+  proc.onaudioprocess = (ev) => {
+    if (!S.scanning) return;
+    const ch = ev.inputBuffer.getChannelData(0);
+    let s2 = 0;
+    for (let i=0;i<ch.length;i++) s2 += ch[i]*ch[i];
+    const rms = Math.sqrt(s2/ch.length);
+    if (rms > peakA) peakA = rms;
+    const idx = Math.round(vid.currentTime * HZ);
+    if (idx > 0 && idx < n){
+      accA[idx] += rms;
+      cntA[idx] += 1;
+    }
+  };
+  try { srcNode.connect(proc); proc.connect(muteGain); } catch(e){}
+
+  // 画面: 128x72 三层分析 (仅前台有效)
+  const SW = 128, SH = 72;
+  const sc = document.createElement('canvas');
+  sc.width = SW; sc.height = SH;
+  const sctx = sc.getContext('2d', {willReadFrequently:true});
+
+  const wmap = new Float32Array(SW*SH);
+  for (let y=0;y<SH;y++){
+    for (let x=0;x<SW;x++){
+      const dx = (x/(SW-1)-0.5)*2, dy = (y/(SH-1)-0.5)*2;
+      wmap[y*SW+x] = 1 - 0.75*Math.sqrt(dx*dx+dy*dy)/1.4142;
+    }
+  }
+  const BW=4, BH=4;
+  const bIdx = new Int32Array(SW*SH);
+  for (let y=0;y<SH;y++){
+    for (let x=0;x<SW;x++){
+      const bx = Math.min(BW-1,(x*BW/SW)|0);
+      const by = Math.min(BH-1,(y*BH/SH)|0);
+      bIdx[y*SW+x] = by*BW+bx;
+    }
+  }
+  const bsSum = new Float32Array(BW*BH);
+  const bsCnt = new Float32Array(BW*BH);
+
+  let prevFrame = null;
+  let vOk = true;
+  let frameNo = 0;
+  let cutCount = 0;
+
+  const prevRate = vid.playbackRate;
+  vid.playbackRate = 1.0;
+  vid.volume = 1;
+  vid.currentTime = 0;
+  await vid.play();
+
+  $('#scan').textContent = '扫描 0%';
+  $('#scan').disabled = true;
+
+  await new Promise(resolve => {
+    const tick = () => {
+      const t = vid.currentTime;
+      let diff = 0, hasDiff = false, isCut = 0;
+      if (vOk && !document.hidden && (frameNo++ % 6 === 0)){
+        try {
+          sctx.drawImage(vid, 0, 0, SW, SH);
+          const img = sctx.getImageData(0,0,SW,SH).data;
+          if (prevFrame){
+            bsSum.fill(0); bsCnt.fill(0);
+            let wacc = 0, wsum = 0;
+            for (let p=0, i=0; p<img.length; p+=4, i++){
+              const d = (Math.abs(img[p]   - prevFrame[p])
+                       + Math.abs(img[p+1] - prevFrame[p+1])
+                       + Math.abs(img[p+2] - prevFrame[p+2])) / 3 / 255;
+              const w = wmap[i];
+              wacc += d*w; wsum += w;
+              const bi = bIdx[i];
+              bsSum[bi] += d; bsCnt[bi] += 1;
+            }
+            const weighted = wsum > 0 ? wacc/wsum : 0;
+            let blockMax = 0, bigBlocks = 0;
+            for (let i=0;i<bsSum.length;i++){
+              if (bsCnt[i] <= 0) continue;
+              const bm = bsSum[i]/bsCnt[i];
+              if (bm > blockMax) blockMax = bm;
+              if (bm > 0.16) bigBlocks++;
+            }
+            isCut = (bigBlocks >= BW*BH*0.8) ? 1 : 0;
+            diff = weighted*0.55 + blockMax*0.45;
+            hasDiff = true;
+          }
+          prevFrame = img;
+        } catch(e){ vOk = false; }
+      }
+      if (diff > peakV) peakV = diff;
+      if (isCut) cutCount++;
+
+      if (hasDiff){
+        const idx = Math.round(t*HZ);
+        if (idx > 0 && idx < n){
+          accV[idx] += diff; cntV[idx] += 1;
+          if (isCut) accC[idx] += 1;
+        }
+      }
+
+      if ((frameNo & 31) === 0 && S.dur > 0){
+        $('#scan').textContent = '扫描 ' + Math.min(99, Math.floor(t/S.dur*100)) + '%';
+      }
+
+      if (vid.ended || t >= S.dur-0.05){ resolve(); return; }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+
+  vid.pause();
+  vid.playbackRate = prevRate;
+  vid.currentTime = 0;
+  S.scanning = false;
+  try { srcNode.disconnect(proc); } catch(e){}
+  try { proc.disconnect(); } catch(e){}
+
+  const cA = new Float32Array(n), cV = new Float32Array(n);
+  const cutFlag = new Uint8Array(n);
+  let mxA = 0, mxV = 0, covA = 0, covV = 0;
+  for (let i=0;i<n;i++){
+    if (cntA[i]){ cA[i] = accA[i]/cntA[i]; if (cA[i] > mxA) mxA = cA[i]; covA++; }
+    if (cntV[i]){ cV[i] = accV[i]/cntV[i]; if (cV[i] > mxV) mxV = cV[i]; covV++; }
+    if (accC[i] > 0) cutFlag[i] = 1;
+  }
+  if (mxA <= 0) mxA = 1;
+  if (mxV <= 0) mxV = 1;
+
+  const cVfix = cV.slice();
+  for (let i=0;i<n;i++){
+    if (!cutFlag[i]) continue;
+    let s3 = 0, k = 0;
+    for (let j=Math.max(0,i-5); j<=Math.min(n-1,i+5); j++){
+      if (!cutFlag[j] && cntV[j]){ s3 += cV[j]; k++; }
+    }
+    cVfix[i] = k ? s3/k : cV[i]*0.3;
+  }
+
+  let wA = 0.65, wV = 0.35;
+  if (mxA < 1e-6){ wA = 0; wV = 1; }
+  else if (mxV < 1e-6){ wV = 0; wA = 1; }
+
+  const tmp = new Float32Array(n);
+  const mvNorm = new Float32Array(n);
+  for (let i=0;i<n;i++){
+    mvNorm[i] = cVfix[i]/mxV*100;
+    tmp[i] = (cA[i]/mxA*wA + cVfix[i]/mxV*wV) * 100;
+  }
+
+  let v = tmp[0] || 0;
+  for (let i=0;i<n;i++){
+    const x = tmp[i];
+    v += (x-v) * (x>v ? 0.22 : 0.05);
+    S.a[i] = v;
+  }
+
+  const rateA = covA/n;
+  S.mv = mvNorm;
+  S.cut = cutFlag;
+  S.lastScan = { peakA:+peakA.toFixed(4), peakV:+peakV.toFixed(3),
+                 wA, wV, vOk, cutCount,
+                 covAudio:+rateA.toFixed(3), covVideo:+(covV/n).toFixed(3) };
+  console.log('[scan]', S.lastScan);
+
+  if (rateA < 0.85){
+    alert('音频覆盖不足：' + (rateA*100).toFixed(0) + '%');
+  }
+  $('#scan').textContent = '扫描';
+  $('#scan').disabled = false;
+  draw();
+}
+
+// ── 用 A 生成 B（B 模式规则）───────────────────────────────────
+function genB(){
+  if (!S.ready) return;
+  snap();
+  const n = S.a.length;
+  // 1) 压缩到 0.15~0.75
+  // 2) 更强平滑 (attack 0.18 / release 0.035)
+  // 3) 底板 15
+  // 4) 5% 低频随机游走
+  let v = S.a[0]*0.6 + 15;
+  let noise = 0;
+  const rnd = () => (Math.random()*2-1);
+  for (let i=0;i<n;i++){
+    const raw = clamp(S.a[i],0,100)/100;
+    const target = 15 + raw*60;      // 15..75
+    v += (target - v) * (target>v ? 0.18 : 0.035);
+    noise += (rnd()*1.6 - noise) * 0.02;
+    S.b[i] = clamp(v + noise*3.2, 0, 100);
+  }
+  draw();
+}
+
+// ── 草稿 ────────────────────────────────────────────────────────
+const DRAFT_KEY = 'cupdrive.draft.';
+function saveDraft(){
+  if (!S.ready) return;
+  try{
+    const key = DRAFT_KEY + ($('#fname').textContent||'');
+    localStorage.setItem(key, JSON.stringify({
+      dur:S.dur, hz:HZ,
+      a:Array.from(S.a, v=>Math.round(v)),
+      b:Array.from(S.b, v=>Math.round(v)),
+      ts:Date.now()
+    }));
+    $('#save').textContent = '已保存';
+    setTimeout(()=>$('#save').textContent='保存草稿', 1200);
+  }catch(e){ alert('保存失败: '+e.message); }
+}
+function restoreDraft(name){
+  try{
+    const raw = localStorage.getItem(DRAFT_KEY+name);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    if (Math.abs((d.dur||0) - S.dur) > 2) return;
+    if (!confirm(`发现同名草稿（${new Date(d.ts).toLocaleString()}），恢复？`)) return;
+    const n = S.a.length;
+    for (let i=0;i<n && i<d.a.length;i++){ S.a[i]=d.a[i]; S.b[i]=d.b[i]||0; }
+    draw();
+  }catch(e){}
+}
+
+// ── 导出 ────────────────────────────────────────────────────────
+function exportJSON(){
+  if (!S.ready) return;
+  const out = {
+    version: 1,
+    mode: 'immersive',
+    source: $('#fname').textContent,
+    duration: S.dur,
+    hz: HZ,
+    a: Array.from(S.a, v=>Math.round(v)),
+    b: Array.from(S.b, v=>Math.round(v)),
+    mv: S.mv ? Array.from(S.mv, v=>Math.round(v)) : [],
+    cut: S.cut ? Array.from(S.cut) : [],
+    scan: S.lastScan || null,
+  };
+  const blob = new Blob([JSON.stringify(out)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = ($('#fname').textContent||'script').replace(/\.[^.]+$/,'') + '.script.json';
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+}
+
+// ── 选区操作 ────────────────────────────────────────────────────
+function applySel(fn){
+  if (!S.ready || S.sel0 == null) return;
+  snap();
+  const t0 = Math.min(S.sel0,S.sel1), t1 = Math.max(S.sel0,S.sel1);
+  const i0 = clamp(Math.floor(t0*HZ),0,S.a.length-1);
+  const i1 = clamp(Math.ceil(t1*HZ),0,S.a.length-1);
+  const arr = S.target==='a' ? S.a : S.b;
+  fn(arr, i0, i1);
+  draw();
+}
+
+// ── 事件绑定 ────────────────────────────────────────────────────
+$('#open').onclick = () => $('#file').click();
+$('#drop').onclick = () => $('#file').click();
+$('#file').onchange = e => { if (e.target.files[0]) loadFile(e.target.files[0]); };
+
+document.addEventListener('dragover', e => { e.preventDefault(); });
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  const f = e.dataTransfer.files[0];
+  if (f) loadFile(f);
+});
+
+$('#m1').onclick = () => setMode(1);
+$('#m2').onclick = () => setMode(2);
+$('#m3').onclick = () => setMode(3);
+function setMode(m){
+  S.mode = m;
+  ['#m1','#m2','#m3'].forEach((s,i)=>$(s).classList.toggle('on', i+1===m));
+  draw();
+}
+
+$('#tA').onclick = () => setTarget('a');
+$('#tB').onclick = () => setTarget('b');
+function setTarget(t){
+  S.target = t;
+  $('#tA').classList.toggle('on', t==='a');
+  $('#tB').classList.toggle('on', t==='b');
+}
+
+$('#val').oninput = e => { $('#valtxt').textContent = e.target.value; };
+$('#undo').onclick = undo;
+$('#scan').onclick = scanAudio;
+$('#fill').onclick = genB;
+$('#auto').onclick = async () => {
+  if (!S.ready || S.scanning) return;
+  const btn = $('#auto');
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '① 采样音频…';
+  try {
+    await scanAudio();
+    btn.textContent = '② 合成表现轨…';
+    await new Promise(r => setTimeout(r, 120));
+    genB();
+    btn.textContent = '③ 导出…';
+    await new Promise(r => setTimeout(r, 220));
+    exportJSON();
+    btn.textContent = '✓ 完成';
+  } catch (e) {
+    console.error(e);
+    btn.textContent = '✗ 失败';
+  }
+  setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 1800);
+};
+$('#save').onclick = saveDraft;
+$('#export').onclick = exportJSON;
+
+$('#play').onclick = () => { vid.paused ? vid.play() : vid.pause(); };
+vid.onplay = () => $('#play').textContent = '❚❚';
+vid.onpause = () => $('#play').textContent = '▶';
+
+$('#scrub').oninput = e => {
+  if (!S.ready) return;
+  S.scrubbing = true;
+  vid.currentTime = Number(e.target.value)/10;
+  draw();
+};
+$('#scrub').onchange = () => { S.scrubbing = false; };
+
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === ' '){ e.preventDefault(); vid.paused ? vid.play() : vid.pause(); }
+  else if (e.key === '1') setMode(1);
+  else if (e.key === '2') setMode(2);
+  else if (e.key === '3') setMode(3);
+  else if (e.key.toLowerCase() === 'z' && (e.ctrlKey||e.metaKey)){ e.preventDefault(); undo(); }
+  else if (e.key === 'Delete' && S.mode===3){
+    applySel((arr,i0,i1)=>{ for(let i=i0;i<=i1;i++) arr[i]=0; });
+  }
+  else if (e.key === '=' || e.key === '+'){
+    applySel((arr,i0,i1)=>{ for(let i=i0;i<=i1;i++) arr[i]=clamp(arr[i]+8,0,100); });
+  }
+  else if (e.key === '-' || e.key === '_'){
+    applySel((arr,i0,i1)=>{ for(let i=i0;i<=i1;i++) arr[i]=clamp(arr[i]-8,0,100); });
+  }
+  else if (e.key.toLowerCase() === 's' && (e.ctrlKey||e.metaKey)){
+    e.preventDefault(); applySel((arr,i0,i1)=>{
+      const c = arr.slice();
+      for (let i=i0;i<=i1;i++){
+        let s=0,k=0;
+        for (let j=-6;j<=6;j++){ const x=i+j; if (x>=i0&&x<=i1){ s+=c[x]; k++; } }
+        arr[i] = s/k;
+      }
+    });
+  }
+});
+
+// ── 循环 ────────────────────────────────────────────────────────
+let raf = 0;
+function loop(){
+  raf = requestAnimationFrame(loop);
+  if (!S.ready) return;
+  if (!S.scrubbing){
+    $('#scrub').value = String(Math.round((vid.currentTime||0)*10));
+  }
+  $('#time').textContent = fmt(vid.currentTime) + ' / ' + fmt(S.dur);
+
+  // 播放头跟随: 播放时自动滚动视野
+  if (!vid.paused){
+    const t = vid.currentTime;
+    if (t > S.view1 - (S.view1-S.view0)*0.12){
+      const span = S.view1-S.view0;
+      S.view0 = clamp(t - span*0.25, 0, Math.max(0,S.dur-span));
+      S.view1 = S.view0 + span;
+    }
+  }
+  draw();
+}
+
+// 切走标签页时 rAF 会停 -> 画面分析中断, 但音频(ScriptProcessor)继续
+document.addEventListener('visibilitychange', () => {
+  if (S.scanning){
+    console.log('[scan] ' + (document.hidden ? 'hidden: video paused, audio continues' : 'visible'));
+  }
+});
+
+bindTrack(ca);
+bindTrack(cb);
+window.addEventListener('resize', draw);
+loop();
+
+})();
+</script>
+</body>
+</html>
