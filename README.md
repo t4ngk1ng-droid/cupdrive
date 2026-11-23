@@ -6,7 +6,7 @@
 
 > No Python, no installer. Unzip and run `cupdrive.exe`.
 
-> **中文版：[README.zh-CN.md](README.zh-CN.md)** · **使用说明：[docs/usage.md](docs/usage.md)**
+> **中文版：[README.zh-CN.md](README.zh-CN.md)** · **User guide: [English](docs/usage.en.md) · [中文](docs/usage.md)**
 
 **Turn any video into Bluetooth toy motion — offline, no account, no vendor content library.**
 
@@ -19,7 +19,7 @@ protocol. Video never leaves your machine.
 Built and verified against **MIZZZEE XW (醉清风)**. The pipeline is generic;
 other devices need a protocol mapping.
 
-**Windows 10/11 x64** · **[Download](../../releases)** · **[中文使用说明](docs/usage.md)** · no Python, no installer
+**Windows 10/11 x64** · **[Download](../../releases)** · **[English guide](docs/usage.en.md)** · **[中文使用说明](docs/usage.md)** · no Python, no installer
 
 ---
 
@@ -45,7 +45,7 @@ other devices need a protocol mapping.
 > **More info → Run anyway**.
 
 The UI opens in an app-mode Edge/Chrome window. Close it and the background
-process exits after two idle minutes; there is also a **退出** button in the
+process exits after two idle minutes; there is also a **Quit** button in the
 header.
 
 **中文使用说明：[docs/usage.md](docs/usage.md)** — 下载、标定、连接设备、参数、常见问题。
@@ -61,14 +61,15 @@ video ──► web/index.html ──► script.json ──► tune.py ──►
                             webapp.py + ui/app.html (local HTTP + browser shell)
 ```
 
-1. **Calibrate** — drop a video into the calibration page; **⚡ 全自动** scans
+1. **Calibrate** — drop a video into the calibration page; **⚡ Auto** scans
    audio, motion and cuts, then exports `<name>.script.json`.
 2. **Tune** — the desktop app denoises, stretches, fuses and rate-limits it
    into a playable curve.
 3. **Play** — open the same video, pick the curve (it auto-matches by filename),
    connect the device, press play.
 
-No hardware? **Mock 模式** runs the whole timeline, guard included, without BLE.
+No hardware? Open any video, then click **Mock mode** → **▶** — the whole
+timeline runs, guard included, without BLE.
 
 Five stages:
 
@@ -86,7 +87,7 @@ Nothing is uploaded — the server binds to `127.0.0.1` only.
 
 The desktop app defaults to **vibration only** (cap 55). Thrust (cap 40) and
 shake (cap 35) are mechanical channels and require explicit confirmation.
-`Esc` or **紧急停止** zeros everything immediately.
+`Esc` or **STOP** zeros everything immediately.
 
 ---
 
@@ -98,7 +99,7 @@ pip install bleak numpy
 
 **1. Capture a curve**
 
-Open `web/index.html` in Chrome/Edge, drop a video in, hit **⚡ 全自动**. It
+Open `web/index.html` in Chrome/Edge, drop a video in, hit **⚡ Auto**. It
 scans the file and downloads `<name>.script.json`.
 
 **2. Tune it**
@@ -226,7 +227,7 @@ Produces `release\cupdrive-win64.zip` (≈21 MB compressed, Python bundled).
 Upload it:
 
 ```bash
-gh release create v0.3.2 release/cupdrive-win64.zip --title "cupdrive v0.3.2"
+gh release create v0.3.3 release/cupdrive-win64.zip --title "cupdrive v0.3.3" --notes-file docs/release-notes.md
 ```
 
 The build has no pythonnet dependency — BLE goes through `bleak`, the UI

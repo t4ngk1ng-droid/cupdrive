@@ -73,6 +73,8 @@ class SafetyGuard:
         dt = now - self._t
         if dt <= 0:
             dt = 1e-3
+        elif dt > 0.2:
+            dt = 0.2        # 长时间停帧后不允许一次跳变过大
         self._t = now
 
         t = max(0.0, min(float(target), self.max_value))

@@ -7,7 +7,7 @@ play.py — 把曲线播放成设备动作（多通道 + 安全护栏）
     0  伸缩     上限 40（实测手感的甜点值）
     1  振动     上限 55
     2  抖动     上限建议 35
-    3  旋转     本机无反应
+    3  旋转     本机无硬件（会被拒绝）
 
 用法
 ──────────────────────────────────────────────────────────────
@@ -17,9 +17,9 @@ play.py — 把曲线播放成设备动作（多通道 + 安全护栏）
 
 参数
 ──────────────────────────────────────────────────────────────
-  --channels 0,1,2     启用哪些通道（默认 1 = 只振动）
-  --thrust-cap N       伸缩上限（默认 65）
-  --vib-cap N          振动上限（默认 80）
+  --channels 0,1,2     启用哪些通道（默认 1 = 只振动；3 = 旋转，本机无硬件，会被拒绝）
+  --thrust-cap N       伸缩上限（默认 40）
+  --vib-cap N          振动上限（默认 55）
   --shake-cap N        抖动上限（默认 35）
   --lag S              伸缩相对振动的滞后秒数（默认 0.8）
 """
@@ -132,9 +132,12 @@ async def run(args):
         if tok not in CH_KEYS:
             continue
         ch = CH_KEYS[tok]
+        if ch == P.CH_ROTATE:
+            print("拒绝通道 3（旋转）：本机没有该执行机构")
+            continue
         caps[ch] = {P.CH_THRUST: args.thrust_cap,
                     P.CH_VIB: args.vib_cap,
-                    P.CH_SUCTION: args.shake_cap}.get(ch, args.max)
+                    P.CH_SUCTION: args.shake_cap}[ch]
     if not caps:
         print("没有可用通道")
         return 1
@@ -228,7 +231,8 @@ def main():
     ap.add_argument("--vib-cap", type=int, default=55)
     ap.add_argument("--shake-cap", type=int, default=35)
     ap.add_argument("--lag", type=float, default=0.8)
-    ap.add_argument("--max", type=int, default=80)
+    ap.add_argument("--max", type=int, default=80,
+                    help="兼容保留：通道 3（旋转）已被拒绝，此参数不再生效")
     ap.add_argument("--slew", type=float, default=25.0)
     ap.add_argument("--scale", type=float, default=1.0)
     ap.add_argument("--gamma", type=float, default=1.0)
@@ -236,7 +240,7 @@ def main():
     ap.add_argument("--limit", type=float, default=0)
     ap.add_argument("--wait", action="store_true")
     args = ap.parse_args()
-    asyncio.run(run(args))
+    return asyncio.run(run(args))
 
 
 if __name__ == "__main__":

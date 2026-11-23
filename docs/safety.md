@@ -53,7 +53,7 @@ These are **hand-tuned feel values, not device maxima.** The device accepts 99.
 
 ### 3. Slew limiting
 
-25 units/s. No command can jump more than ~1.25 units per tick at 10 Hz.
+25 units/s. No command can jump more than 2.5 units per tick at 10 Hz (25 / 10).
 
 ```python
 delta = slew * dt
@@ -62,7 +62,14 @@ v = last + max(-delta, min(delta, target - last))
 
 ### 4. Fail-safe zero
 
-Every exit path zeroes the device before disconnecting:
+Zeroing is explicit, not a process-level fallback: `GuardedDevice._atexit_zero`
+only defines a coroutine and never runs it, and no entry point installs the
+signal handler. What actually zeroes the device:
+
+- **Desktop app** — the service layer zeroes the device on pause, panic,
+  disconnect and exit.
+- **CLI (`play.py`)** — a `finally` block sends the zero frame and `halt`
+  before closing the connection:
 
 ```python
 finally:
@@ -70,11 +77,9 @@ finally:
     await be.send(halt())
 ```
 
-Plus `atexit` and `SIGINT`/`SIGTERM` handlers.
-
-> Note: if the process is killed with SIGKILL, nothing runs. The device keeps
-> its last state until BLE times out or it is powered off. There is no
-> heartbeat mechanism.
+> Note: if the process is killed with SIGKILL or crashes hard, nothing runs.
+> The device keeps its last state until BLE times out or it is powered off.
+> There is no heartbeat mechanism.
 
 ### 5. Audit
 

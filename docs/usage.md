@@ -6,14 +6,14 @@
 
 适用设备：**MIZZZEE XW（醉清风）**。其他型号需要先确认协议，见文末。
 
-**版本** v0.3.2 · Windows 10/11 x64
+**版本** v0.3.3 · Windows 10/11 x64
 
 ---
 
 ## 0. 最短路径（5 分钟）
 
 1. 解压 `cupdrive-win64.zip`，双击 `cupdrive.exe`；
-2. 点 **Mock 模式** → **▶**，确认界面能动（不会驱动设备）；
+2. 先打开任意视频，再点 **Mock 模式** → **▶**，确认界面能动（不会驱动设备）；
 3. 点 **标定台** → 拖入视频 → **⚡ 全自动** → 下载 `<视频名>.script.json`；
 4. 回窗口点 **导入脚本**，选刚下载的文件；
 5. **扫描设备** → 点 `MIZZZEE XW` → **打开视频** → **▶**。
@@ -93,9 +93,10 @@
 
 ### 第 1 步：先确认软件能跑
 
-1. 点 **Mock 模式**（顶栏出现 `Mock`）；
-2. 曲线下拉框里选 `example.tuned.json`；
-3. 点 **▶**。
+1. 点 **打开视频**，随便选一个本地视频（没有视频时 ▶ 会拒绝播放）；
+2. 点 **Mock 模式**（顶栏出现 `Mock`）；
+3. 曲线下拉框里选 `example.tuned.json`；
+4. 点 **▶**。
 
 底部强度条会跟着 12 秒示例曲线起伏，但不会驱动设备。这一步只是确认界面和时序正常。
 
@@ -246,7 +247,7 @@
 
 ## 7. 从源码运行（开发者）
 
-需要 Python 3.9+。
+需要 Python 3.10+（bleak 3.1 的要求）。发布包内置 Python 3.12，普通用户直接双击 `cupdrive.exe`，不需要安装 Python。
 
 ```bash
 pip install -r requirements.txt
@@ -286,7 +287,7 @@ release.bat
 目前只对 `MIZZZEE XW` 做过逐字节验证。其他设备需要：
 
 1. 抓一份广播名；
-2. 用 `tools/channel_probe.py` 或 `first_contact` 思路确认 service / write / notify；
+2. 用 `tools/channel_probe.py` 确认 service / write / notify；
 3. 修改 `cupdrive/protocol.py` 里的 UUID 表；
 4. **一次只开一个通道**，从小值开始试。
 

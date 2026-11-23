@@ -61,7 +61,7 @@ cupdrive 在浏览器里读取视频的节奏，加工成限速的运动曲线�
 2. **加工**——桌面版做降噪、拉伸、融合和限速，生成可播放的曲线。
 3. **播放**——打开同一个视频，选曲线（按文件名自动匹配），连接设备，点播放。
 
-没有硬件？**Mock 模式**会走完整时序，包括安全护栏，只是不发蓝牙。
+没有硬件？先打开任意视频，再点 **Mock 模式** → **▶**，会走完整时序，包括安全护栏，只是不发蓝牙。
 
 五个阶段：
 
@@ -208,7 +208,7 @@ release.bat
 生成 `release\cupdrive-win64.zip`（约 21 MB 压缩，内含 Python）。上传：
 
 ```bash
-gh release create v0.3.2 release/cupdrive-win64.zip --title "cupdrive v0.3.2" --notes-file docs/release-notes.md
+gh release create v0.3.3 release/cupdrive-win64.zip --title "cupdrive v0.3.3" --notes-file docs/release-notes.md
 ```
 
 构建不依赖 pythonnet——BLE 走 `bleak`，界面走本地 HTTP 服务，所以

@@ -22,9 +22,18 @@ if errorlevel 1 goto fail
 
 echo [3/4] Adding docs ...
 copy /y README.md dist\cupdrive\ >nul
+if errorlevel 1 goto fail
 copy /y README.zh-CN.md dist\cupdrive\ >nul
+if errorlevel 1 goto fail
 copy /y LICENSE dist\cupdrive\ >nul
+if errorlevel 1 goto fail
 xcopy /E /I /Y docs dist\cupdrive\docs >nul
+if errorlevel 1 goto fail
+findstr /c:"v0.3.3" docs\usage.md >nul
+if errorlevel 1 (
+  echo ERROR: docs\usage.md does not contain v0.3.3
+  goto fail
+)
 
 echo [4/4] Zipping ...
 if not exist release mkdir release
@@ -36,7 +45,7 @@ if errorlevel 1 goto fail
 echo.
 echo Done: release\cupdrive-win64.zip
 echo Upload it to GitHub Releases:
-echo   gh release create v0.3.2 release\cupdrive-win64.zip --title "cupdrive v0.3.2" --notes-file docs\release-notes.md
+echo   gh release create v0.3.3 release\cupdrive-win64.zip --title "cupdrive v0.3.3" --notes-file docs\release-notes.md
 pause
 exit /b 0
 

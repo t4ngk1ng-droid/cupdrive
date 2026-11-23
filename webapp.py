@@ -39,13 +39,29 @@ from urllib.parse import urlparse, parse_qs
 if getattr(sys, "frozen", False):
     RES_DIR = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
     APP_DIR = os.path.dirname(sys.executable)
-    if sys.stdout is None:
-        _log = open(os.path.join(APP_DIR, "cupdrive.log"), "a",
-                    encoding="utf-8", buffering=1)
-        sys.stdout = _log
-        sys.stderr = _log
 else:
     RES_DIR = APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _open_log():
+    """--noconsole 时 stdout 为 None：程序目录不可写则回退用户目录。"""
+    candidates = [os.path.join(APP_DIR, "cupdrive.log")]
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        candidates.append(os.path.join(local, "cupdrive", "cupdrive.log"))
+    for path in candidates:
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            return open(path, "a", encoding="utf-8", buffering=1)
+        except OSError:
+            continue
+    return open(os.devnull, "w")
+
+
+if getattr(sys, "frozen", False) and sys.stdout is None:
+    _log = _open_log()
+    sys.stdout = _log
+    sys.stderr = _log
 
 sys.path.insert(0, RES_DIR)
 os.chdir(APP_DIR)
@@ -70,6 +86,26 @@ ALLOWED = {
     "import_data",
 }
 
+# Windows 命名互斥句柄：必须保留引用，否则被回收后锁就没了。
+_MUTEX_HANDLE = None
+
+
+def acquire_single_instance():
+    """已有实例在跑时返回 False（非 Windows 不做限制）。"""
+    global _MUTEX_HANDLE
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+        _MUTEX_HANDLE = ctypes.windll.kernel32.CreateMutexW(
+            None, False, "Local\\cupdrive-single-instance")
+        if not _MUTEX_HANDLE:
+            return True             # 创建失败不阻止启动
+        ERROR_ALREADY_EXISTS = 183
+        return ctypes.windll.kernel32.GetLastError() != ERROR_ALREADY_EXISTS
+    except Exception:
+        return True
+
 
 # ══════════════════════════════════════════════════════════════
 #  HTTP
@@ -89,6 +125,7 @@ def make_handler(core: Core, token: str, debug=False):
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Frame-Options", "DENY")
             self.end_headers()
             try:
                 self.wfile.write(body)
@@ -109,10 +146,15 @@ def make_handler(core: Core, token: str, debug=False):
             except OSError:
                 self._json({"ok": False, "error": "not found"}, 404)
 
+        def _host_ok(self):
+            port = self.server.server_address[1]
+            hosts = (f"127.0.0.1:{port}", f"localhost:{port}")
+            return self.headers.get("Host", "") in hosts
+
         def _authorized(self):
             port = self.server.server_address[1]
             hosts = (f"127.0.0.1:{port}", f"localhost:{port}")
-            if self.headers.get("Host", "") not in hosts:
+            if not self._host_ok():
                 return False
             origin = self.headers.get("Origin")
             if origin and origin not in tuple("http://" + h for h in hosts):
@@ -127,8 +169,14 @@ def make_handler(core: Core, token: str, debug=False):
             core.touch()
             p = urlparse(self.path).path
             if p in ("/", "/index.html"):
+                if not self._host_ok():
+                    self._json({"ok": False, "error": "forbidden"}, 403)
+                    return
                 self._page(os.path.join(UI_DIR, "app.html"))
             elif p in ("/marker", "/marker/"):
+                if not self._host_ok():
+                    self._json({"ok": False, "error": "forbidden"}, 403)
+                    return
                 self._page(os.path.join(WEB_DIR, "index.html"))
             elif p == "/favicon.ico":
                 self._raw(b"", "image/x-icon", 204)
@@ -208,6 +256,7 @@ def find_browser():
     for p in (
         os.path.join(pf86, r"Microsoft\Edge\Application\msedge.exe"),
         os.path.join(pf, r"Microsoft\Edge\Application\msedge.exe"),
+        os.path.join(pf_local, r"Microsoft\Edge\Application\msedge.exe"),
         os.path.join(pf, r"Google\Chrome\Application\chrome.exe"),
         os.path.join(pf86, r"Google\Chrome\Application\chrome.exe"),
         os.path.join(pf_local, r"Google\Chrome\Application\chrome.exe"),
@@ -248,7 +297,7 @@ def idle_watch(server, core, seconds=120):
     """浏览器关掉后前端不再轮询，空闲超时就退出进程。"""
     while True:
         time.sleep(5)
-        if time.time() - core.last_request > seconds:
+        if time.monotonic() - core.last_request > seconds:
             try:
                 server.shutdown()
             except Exception:
@@ -268,11 +317,13 @@ def check():
     print(f"    frozen={getattr(sys, 'frozen', False)}")
 
     print("\n[2] 依赖")
+    dep_ok = True
     for mod in ("bleak", "numpy"):
         try:
             __import__(mod)
             print(f"    {mod:8s} OK")
         except Exception as e:
+            dep_ok = False
             print(f"    {mod:8s} FAIL {e}")
 
     core = Core(CURVES_DIR, EXAMPLES_DIR)
@@ -311,6 +362,9 @@ def check():
 
     core.shutdown()
     print("\n" + "=" * 64)
+    if not dep_ok:
+        print("自检未通过：依赖缺失。")
+        return 1
     print("自检完成。启动:  python webapp.py")
     return 0
 
@@ -374,18 +428,35 @@ def main():
     if "--check" in sys.argv:
         return check()
 
+    # 单实例：已有窗口在跑时直接退出，避免两个进程抢同一个设备。
+    if not acquire_single_instance():
+        print("[cupdrive] 已有实例在运行，本次启动退出")
+        return 0
+
     core = Core(CURVES_DIR, EXAMPLES_DIR)
     core.ensure_example()
 
     port = 0
     if "--port" in sys.argv:
         i = sys.argv.index("--port")
-        if i + 1 < len(sys.argv):
+        try:
             port = int(sys.argv[i + 1])
+            if not (0 <= port <= 65535):
+                raise ValueError("端口超出范围")
+        except (IndexError, ValueError) as e:
+            print(f"[cupdrive] --port 参数无效: {e}")
+            core.shutdown()
+            return 1
 
-    httpd = ThreadingHTTPServer(
-        ("127.0.0.1", port),
-        make_handler(core, TOKEN, "--debug" in sys.argv))
+    try:
+        httpd = ThreadingHTTPServer(
+            ("127.0.0.1", port),
+            make_handler(core, TOKEN, "--debug" in sys.argv))
+    except OSError as e:
+        # 端口被占用等：写日志后退出，不静默
+        print(f"[cupdrive] 服务启动失败（端口 {port}）: {e}")
+        core.shutdown()
+        return 1
     httpd.daemon_threads = True
     url = f"http://127.0.0.1:{httpd.server_address[1]}/"
 
@@ -403,9 +474,10 @@ def main():
 
     if "--no-browser" not in sys.argv:
         launch_ui(url)
-
-    threading.Thread(target=idle_watch, args=(httpd, core, 120),
-                     daemon=True).start()
+        # 纯服务模式（--no-browser）不启看门狗：没有页面轮询也
+        # 不能 120 秒后自动退出。
+        threading.Thread(target=idle_watch, args=(httpd, core, 120),
+                         daemon=True).start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

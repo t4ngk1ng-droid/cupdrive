@@ -1,4 +1,4 @@
-## cupdrive v0.3.2
+## cupdrive v0.3.3
 
 Turn any video into Bluetooth toy motion — offline, no account.
 
@@ -16,6 +16,12 @@ Turn any video into Bluetooth toy motion — offline, no account.
   暂停、急停、重连后旧帧直接丢弃。
 - **Short curves** keep their length after tuning.
   **短曲线**加工后不再被平滑窗口拉长。
+- **Independent review fixes** — switching channels mid-playback zeroes the old
+  channel, panic-stop write failures are detected, connection teardown is
+  cleaner, the calibrator resets `Infinity`/stale state, and playback stops on
+  disconnect or video change.
+  **独立审查修复**——播放中切换通道先归零、急停写失败检测、连接清理、
+  标定台 `Infinity`/状态重置、断开或换视频停播。
 
 ### Read first / 先读
 

@@ -41,7 +41,7 @@ Smoothing window sweep, measuring the resulting spread:
 | 1 (none) | 28.8 | high-freq jitter, unreadable |
 | 5 | 28.4 | still noisy |
 | 10 | 28.6 | still noisy |
-| **40 (4 s)** | **28.8** | **clean段落 structure** |
+| **40 (4 s)** | **28.8** | **clean 段落 structure** |
 | 100 (10 s) | 30.0 | starts eating real beats |
 
 `std` barely changes, but the *shape* is completely different. At window=1 the

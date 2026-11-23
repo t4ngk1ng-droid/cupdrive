@@ -6,15 +6,15 @@
 
 Device: **MIZZZEE XW (醉清风)**. Other models need a protocol mapping first.
 
-**Version** v0.3.2 · Windows 10/11 x64
+**Version** v0.3.3 · Windows 10/11 x64
 
 ---
 
 ## 0. Quick start (5 minutes)
 
 1. Unzip `cupdrive-win64.zip`, run `cupdrive.exe`;
-2. Click **Mock mode** → **▶** to confirm the UI works (no hardware needed);
-3. Click **Calibrator** → drop a video → **⚡ 全自动** → a `<name>.script.json` downloads;
+2. Open any video, then click **Mock mode** → **▶** to confirm the UI works (no hardware needed);
+3. Click **Calibrator** → drop a video → **⚡ Auto** → a `<name>.script.json` downloads;
 4. Back in the window, click **Import script** and pick that file;
 5. **Scan devices** → click `MIZZZEE XW` → **Open video** → **▶**.
 
@@ -99,9 +99,10 @@ On first launch:
 
 ### Step 1 — confirm the software works
 
-1. Click **Mock mode** (the header shows `Mock`);
-2. Pick `example.tuned.json` in the curve dropdown;
-3. Click **▶**.
+1. Click **Open video** and pick any local video (▶ refuses to start without one);
+2. Click **Mock mode** (the header shows `Mock`);
+3. Pick `example.tuned.json` in the curve dropdown;
+4. Click **▶**.
 
 The intensity bars follow the 12-second example curve, without touching
 hardware. This confirms timing and rendering.
@@ -110,7 +111,7 @@ hardware. This confirms timing and rendering.
 
 1. Click **Calibrator** — the browser opens the curve editor;
 2. Drop a video into the page (or click the open button);
-3. Click **⚡ 全自动**:
+3. Click **⚡ Auto**:
    - scans audio loudness;
    - synthesizes a performance track;
    - downloads `<video-name>.script.json`.
@@ -262,7 +263,8 @@ Five safety mechanisms:
 
 ## 7. Run from source
 
-Requires Python 3.9+.
+Requires Python 3.10+ (bleak 3.1 requires it). The Windows release bundles
+Python 3.12, so `cupdrive.exe` users do not need to install Python.
 
 ```bash
 pip install -r requirements.txt

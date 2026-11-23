@@ -99,59 +99,72 @@ class BleLink:
         self.writes_ok = 0
         self.writes_fail = 0
         self.last_error = ""
+        # 只有归零帧和启动帧都写成功后才为 True；close() 立即置 False。
+        self.ready = False
 
     @property
     def connected(self) -> bool:
         return bool(self.client and self.client.is_connected)
 
     async def connect(self, dev, name_hint: str = ""):
-        from bleak import BleakClient
+        try:
+            from bleak import BleakClient
 
-        name = dev.name if dev is not None else name_hint
-        _, wr, nt = P.resolve(name or "")
-        self.wr, self.nt = wr, nt
-        self.writes_ok = 0
-        self.writes_fail = 0
-        self.last_error = ""
+            name = dev.name if dev is not None else name_hint
+            _, wr, nt = P.resolve(name or "")
+            self.wr, self.nt = wr, nt
+            self.writes_ok = 0
+            self.writes_fail = 0
+            self.last_error = ""
+            self.ready = False
 
-        def _disconnected(_client):
-            self.battery = None
-            if self.on_disconnect:
-                try:
-                    self.on_disconnect()
-                except Exception:
-                    pass
-
-        self.client = BleakClient(dev, disconnected_callback=_disconnected)
-        await asyncio.wait_for(self.client.connect(), timeout=CONNECT_TIMEOUT)
-        self.device = name
-
-        def _notify(_h, data):
-            info = P.parse_notify(bytes(data))
-            if info:
-                self.battery = info.get("power")
-                self.volt = info.get("volt")
-                if self.on_notify:
+            def _disconnected(_client):
+                if _client is not self.client:
+                    return          # 旧连接的回调，不能改新链路状态
+                self.ready = False
+                self.battery = None
+                if self.on_disconnect:
                     try:
-                        self.on_notify(info)
+                        self.on_disconnect()
                     except Exception:
                         pass
 
-        try:
-            await self.client.start_notify(nt, _notify)
-        except Exception:
-            # 没有 notify 也能控制，只是拿不到电量
-            pass
+            self.client = BleakClient(dev, disconnected_callback=_disconnected)
+            await asyncio.wait_for(self.client.connect(), timeout=CONNECT_TIMEOUT)
+            self.device = name
 
-        # 归零 → 启动。两步都成功才算连上；否则设备可能根本没进入
-        # 可控制状态，不能对外报"已连接"。
-        if not await self._write(P.aa_frame(0x08, [0, 0, 0, 0, 0, 0])):
-            raise RuntimeError("归零帧写入失败: " + (self.last_error or "unknown"))
-        await asyncio.sleep(0.15)
-        if not await self._write(P.start()):
-            raise RuntimeError("启动帧写入失败: " + (self.last_error or "unknown"))
-        await asyncio.sleep(0.20)
-        return True
+            def _notify(_h, data):
+                info = P.parse_notify(bytes(data))
+                if info:
+                    self.battery = info.get("power")
+                    self.volt = info.get("volt")
+                    if self.on_notify:
+                        try:
+                            self.on_notify(info)
+                        except Exception:
+                            pass
+
+            try:
+                await self.client.start_notify(nt, _notify)
+            except Exception:
+                # 没有 notify 也能控制，只是拿不到电量
+                pass
+
+            # 归零 → 启动。两步都成功才算连上；否则设备可能根本没进入
+            # 可控制状态，不能对外报"已连接"。
+            if not await self._write(P.aa_frame(0x08, [0, 0, 0, 0, 0, 0])):
+                raise RuntimeError("归零帧写入失败: " + (self.last_error or "unknown"))
+            await asyncio.sleep(0.15)
+            if not await self._write(P.start()):
+                raise RuntimeError("启动帧写入失败: " + (self.last_error or "unknown"))
+            await asyncio.sleep(0.20)
+            self.ready = True       # 启动帧写成功才算就绪
+            return True
+        except Exception:
+            # 任何失败路径都不能留下半连接状态
+            await self.close()
+            self.client = None
+            raise
 
     async def _write(self, frame):
         if not self.connected:
@@ -169,6 +182,7 @@ class BleLink:
         return await self._write(frame)
 
     async def close(self):
+        self.ready = False
         if not self.client:
             return
         try:

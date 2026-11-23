@@ -139,7 +139,7 @@
   <span class="pill" id="stat">—</span>
   <span class="spacer"></span>
   <button id="btnMarker" data-i18n="calibrator" data-i18n-title="calibratorTitle"></button>
-  <button id="btnImport" data-i18n="importScript" data-i18n-title="importTitle"></button>
+  <button id="btnImport" data-i18n-title="importTitle"></button>
   <button id="btnScan" data-i18n="scan" data-i18n-title="scanTitle"></button>
   <button id="btnMock" data-i18n="mockMode"></button>
   <button id="btnLang" style="min-width:38px"></button>
@@ -290,11 +290,12 @@ const I18N = {
     noVideo:'先打开一个视频', noCurve:'先选一条曲线',
     noDevice:'还没连设备。可以先点「Mock 模式」演练',
     beginFailed:'启动失败: {err}', playFailed:'播放失败: {err}',
-    zeroed:'已归零', videoError:'视频播放出错',
+    zeroed:'已归零', zeroFailed:'归零失败，设备可能仍在运行', videoError:'视频播放出错',
     scanning:'扫描中（约 6 秒）…', noDevices:'没找到。手机 App 彻底杀掉了吗？',
     connectingTo:'连接 {name} …', connectFailed:'连接失败: {err}',
     connectedTo:'已连接 {name}', mockOn:'Mock 模式：只走时序，不连设备',
     disconnectedMsg:'已断开', deviceLost:'设备断开，已停止',
+    sessionEnded:'播放已停止（服务端看门狗触发）',
     quitConfirm:'关闭 cupdrive 服务？',
     quitDone:'cupdrive 已退出，可以关闭这个窗口。',
     confirmChannel:'{name} 是机械/强振通道，上限 {cap}。\n开启前请把手拿开。确认开启？',
@@ -324,11 +325,12 @@ const I18N = {
     noVideo:'Open a video first', noCurve:'Pick a curve first',
     noDevice:'No device connected. Try "Mock mode" first.',
     beginFailed:'Could not start: {err}', playFailed:'Playback failed: {err}',
-    zeroed:'Zeroed', videoError:'Video playback error',
+    zeroed:'Zeroed', zeroFailed:'Zero failed — device may still be running', videoError:'Video playback error',
     scanning:'Scanning (about 6 s)…', noDevices:'Nothing found. Is the phone app still running?',
     connectingTo:'Connecting to {name}…', connectFailed:'Connect failed: {err}',
     connectedTo:'Connected to {name}', mockOn:'Mock mode: timeline only, no BLE',
     disconnectedMsg:'Disconnected', deviceLost:'Device disconnected — playback stopped',
+    sessionEnded:'Playback stopped (server watchdog)',
     quitConfirm:'Quit cupdrive?',
     quitDone:'cupdrive has quit. You can close this window.',
     confirmChannel:'{name} is a mechanical channel, capped at {cap}.\nKeep your hands clear. Enable it?',
@@ -358,6 +360,13 @@ let sendTimer = 0;
 let lastBars = 0;
 let connected = false;
 let mock = false;
+let busy = false;          // startPlayback / panic / connect 执行中，忽略重复点击
+let stopPending = false;   // 主动 stop 请求在途，看门狗判断先让路
+let lastError = '';        // 上次服务端错误，只在变化时提示
+
+// 服务端硬上限（status.caps 只含已启用的通道，缺省用固定值兜底）
+const HARD_CAPS = {0: 40, 1: 55, 2: 35};
+let serverCaps = {0: 40, 1: 55, 2: 35};
 
 // 通道开关：默认只开振动。机械通道必须显式确认。
 const chans = {0:false, 1:true, 2:false};
@@ -375,14 +384,23 @@ function applyLangText(){
   });
   $('#btnLang').textContent = LANG === 'zh' ? 'EN' : '中';
   $('#btnLang').title = LANG === 'zh' ? 'Switch to English' : '切换到中文';
+  // 加工中按钮文案由 importScript 自己维护，切语言不要覆盖
+  const btnImport = $('#btnImport');
+  if (!btnImport.disabled) btnImport.textContent = T('importScript');
+  setDevState();
 }
 
 async function setLang(lang){
   LANG = lang;
   localStorage.setItem('cupdrive.lang', LANG);
   applyLangText();
-  setDevState();
   renderChans();
+  // 列表里只有提示文本时，按新语言重绘扫描提示
+  const box = $('#devlist');
+  if (!box.querySelector('.dev')){
+    box.innerHTML = '';
+    setText(box, T('scanHint'));
+  }
   await loadCurveList(curve ? curve.path : null);
 }
 
@@ -438,17 +456,33 @@ async function refreshStatus(){
   mock = !!s.mock;
   setDevState();
 
+  // 缓存服务端硬上限，强度条按它钳制，避免本地值和实际值来回闪
+  if (s.caps){
+    for (const k of Object.keys(HARD_CAPS)){
+      const v = +s.caps[k];
+      serverCaps[k] = (isFinite(v) && v > 0) ? v : HARD_CAPS[k];
+    }
+  }
+
   $('#stat').textContent = T('frames', {n: s.sent});
   $('#bat').hidden = (s.battery == null);
   if (s.battery != null)
     $('#bat').textContent = `${s.battery.toFixed(0)}% ${s.volt ? s.volt.toFixed(2)+'V' : ''}`;
 
-  if (s.error) toast(s.error);
+  // 错误只在变化时提示，避免每 500ms 轮询把 toast 一直重置
+  const err = s.error || '';
+  if (err && err !== lastError) toast(err);
+  lastError = err;
 
   // 播放中掉线 → 立刻停
   if (playing && was && !connected && !mock){
     pausePlayback(true);
     toast(T('deviceLost'));
+  }
+  // 服务端看门狗已终止会话 → 同步停掉前端（主动 stop 在途时不误报）
+  if (playing && !stopPending && s.connected && s.active === false){
+    pausePlayback(true);
+    toast(T('sessionEnded'));
   }
   setBars(s.last);
 }
@@ -456,7 +490,8 @@ async function refreshStatus(){
 function setBars(v){
   const map = [[1,'vib'],[0,'thr'],[2,'shk']];
   for (const [ch, id] of map){
-    const x = (v && v[ch]) || 0;
+    const cap = serverCaps[ch] || HARD_CAPS[ch];
+    const x = Math.max(0, Math.min(cap, (v && v[ch]) || 0));
     $('#f_'+id).style.width = Math.max(0, Math.min(100, x)) + '%';
     $('#n_'+id).textContent = Math.round(x);
   }
@@ -598,56 +633,70 @@ function stopSendTimer(){
 }
 
 async function startPlayback(){
-  if (!vid.src){ toast(T('noVideo')); return; }
-  if (!curve){ toast(T('noCurve')); return; }
-
-  await refreshStatus();
-  if (!mock && !connected){
-    toast(T('noDevice'));
-    return;
-  }
-  let r;
-  try{ r = await call('begin'); }
-  catch(e){ toast(T('beginFailed', {err: e})); return; }
-  playGen = r.gen;
-
-  playing = true;
-  $('#play').textContent = '❚❚';
+  if (busy) return;
+  busy = true;
   try{
-    await vid.play();
-  }catch(e){
-    playing = false; playGen = 0;
-    $('#play').textContent = '▶';
-    call('stop').catch(()=>{});
-    toast(T('playFailed', {err: e}));
-    return;
+    if (!vid.src){ toast(T('noVideo')); return; }
+    if (!curve){ toast(T('noCurve')); return; }
+
+    await refreshStatus();
+    if (!mock && !connected){
+      toast(T('noDevice'));
+      return;
+    }
+    let r;
+    try{ r = await call('begin'); }
+    catch(e){ toast(T('beginFailed', {err: e})); return; }
+    playGen = r.gen;
+
+    playing = true;
+    $('#play').textContent = '❚❚';
+    try{
+      await vid.play();
+    }catch(e){
+      playing = false; playGen = 0;
+      $('#play').textContent = '▶';
+      call('stop').catch(()=>{});
+      toast(T('playFailed', {err: e}));
+      return;
+    }
+    startSendTimer();
+    tick();
+  } finally {
+    busy = false;
   }
-  startSendTimer();
-  tick();
 }
 
-function pausePlayback(silent=false){
+async function pausePlayback(silent=false){
   playing = false;
   playGen = 0;
   $('#play').textContent = '▶';
   cancelAnimationFrame(raf);
   stopSendTimer();
   try{ vid.pause(); }catch(e){}
-  call('stop').catch(()=>{});
+  try{ await call('stop'); }catch(e){}
   setBars([0,0,0,0]);
   if (!silent) refreshStatus();
 }
 
 async function panic(){
-  playing = false;
-  playGen = 0;
-  $('#play').textContent = '▶';
-  cancelAnimationFrame(raf);
-  stopSendTimer();
-  try{ vid.pause(); }catch(e){}
-  try{ await call('panic'); }catch(e){}
-  setBars([0,0,0,0]);
-  toast(T('zeroed'), true);
+  if (busy) return;
+  busy = true;
+  try{
+    playing = false;
+    playGen = 0;
+    $('#play').textContent = '▶';
+    cancelAnimationFrame(raf);
+    stopSendTimer();
+    try{ vid.pause(); }catch(e){}
+    let r = null;
+    try{ r = await call('panic'); }catch(e){}
+    setBars([0,0,0,0]);
+    if (r && r.ok) toast(T('zeroed'), true);
+    else toast(T('zeroFailed'), false);
+  } finally {
+    busy = false;
+  }
 }
 
 // ── 设备 ───────────────────────────────────────────────────────
@@ -687,23 +736,29 @@ async function scan(){
 }
 
 async function connect(address, name){
-  toast(T('connectingTo', {name}));
-  let r;
-  try{ r = await call('connect', {address, name}); }
-  catch(e){ toast(T('connectFailed', {err: e})); return; }
-  if (r.ok){
-    pausePlayback(true);
-    mock = false; connected = true;
-    setDevState();
-    toast(T('connectedTo', {name}), true);
-    await refreshStatus();
-  } else {
-    toast(T('connectFailed', {err: r.error || ''}));
+  if (busy) return;
+  busy = true;
+  try{
+    toast(T('connectingTo', {name}));
+    let r;
+    try{ r = await call('connect', {address, name}); }
+    catch(e){ toast(T('connectFailed', {err: e})); return; }
+    if (r.ok){
+      await pausePlayback(true);
+      mock = false; connected = true;
+      setDevState();
+      toast(T('connectedTo', {name}), true);
+      await refreshStatus();
+    } else {
+      toast(T('connectFailed', {err: r.error || ''}));
+    }
+  } finally {
+    busy = false;
   }
 }
 
 async function useMock(){
-  pausePlayback(true);
+  await pausePlayback(true);
   try{ await call('mock'); }catch(e){}
   mock = true; connected = true;
   setDevState();
@@ -733,9 +788,20 @@ async function toggleChan(ch){
   }
   chans[ch] = !chans[ch];
   if (!chans[0] && !chans[1] && !chans[2]) chans[CH.VIB] = true;
+  // 播放中改通道：先停会话归零，避免设备停在最后强度
+  if (playing){
+    stopPending = true;
+    try{ await call('stop'); }catch(e){}
+    stopPending = false;
+    playing = false;
+    playGen = 0;
+    stopSendTimer();
+    cancelAnimationFrame(raf);
+    try{ vid.pause(); }catch(e){}
+    $('#play').textContent = '▶';
+    setBars([0,0,0,0]);
+  }
   renderChans();
-  playGen = 0;
-  stopSendTimer();
   await applyParams();
 }
 
@@ -768,8 +834,9 @@ async function importScript(){
 }
 
 // ── 视频 ───────────────────────────────────────────────────────
-function setVideoFile(f){
+async function setVideoFile(f){
   if (!f) return;
+  await pausePlayback(true);
   if (vid.src) URL.revokeObjectURL(vid.src);
   vid.src = URL.createObjectURL(f);
   vid.hidden = false;
@@ -790,7 +857,7 @@ $('#btnOpen').onclick = () => {
   const inp = document.createElement('input');
   inp.type = 'file';
   inp.accept = 'video/*';
-  inp.onchange = () => setVideoFile(inp.files[0]);
+  inp.onchange = async () => { await setVideoFile(inp.files[0]); };
   inp.click();
 };
 
@@ -804,6 +871,7 @@ $('#panic').onclick = panic;
 $('#btnLang').onclick = () => setLang(LANG === 'zh' ? 'en' : 'zh');
 
 $('#btnDisconnect').onclick = async () => {
+  await pausePlayback(true);
   try{ await call('disconnect'); }catch(e){}
   connected = false; mock = false;
   setDevState();
@@ -864,10 +932,10 @@ vid.onloadedmetadata = () => {
 };
 
 document.addEventListener('dragover', e => e.preventDefault());
-document.addEventListener('drop', e => {
+document.addEventListener('drop', async e => {
   e.preventDefault();
   const f = [...e.dataTransfer.files].find(f => f.type.startsWith('video/'));
-  if (f) setVideoFile(f);
+  if (f) await setVideoFile(f);
 });
 
 document.addEventListener('keydown', e => {

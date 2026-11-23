@@ -103,17 +103,13 @@
   <button id="tA" class="on" style="border-color:var(--a)" data-i18n="trackA"></button>
   <button id="tB" style="border-color:var(--b)" data-i18n="trackB"></button>
   <div class="sep"></div>
-  <span style="color:var(--dim)" data-i18n="value"></span>
-  <input type="range" id="val" min="0" max="100" value="50" style="width:110px;accent-color:var(--hot)">
-  <span id="valtxt" class="pill">50</span>
-  <div class="sep"></div>
   <button id="undo" disabled data-i18n="undo"></button>
-  <button id="scan" data-i18n="scan" data-i18n-title="scanTitle"></button>
+  <button id="scan" data-i18n="scan" data-i18n-skip data-i18n-title="scanTitle"></button>
   <button id="fill" data-i18n="fill" data-i18n-title="fillTitle"></button>
   <button id="auto" style="border-color:var(--hot);color:var(--hot);font-weight:600"
-          data-i18n="auto" data-i18n-title="autoTitle"></button>
+          data-i18n="auto" data-i18n-skip data-i18n-title="autoTitle"></button>
   <div style="flex:1"></div>
-  <button id="save" data-i18n="saveDraft"></button>
+  <button id="save" data-i18n="saveDraft" data-i18n-skip></button>
   <button id="export" data-i18n="exportJson"></button>
   <button id="btnLang" style="min-width:38px"></button>
 </header>
@@ -153,6 +149,8 @@ const I18N = {
     dropText2:'<b>左键拖动</b> 画曲线　<b>滚轮</b> 缩放　<b>中键</b> 平移',
     dropText3:'<b>1</b> 画笔　<b>2</b> 橡皮　<b>3</b> 选区　<b>Ctrl+Z</b> 撤销　<b>空格</b> 播放/暂停',
     open:'打开视频', notLoaded:'未加载',
+    badFile:'请选择视频文件', badDuration:'无法读取视频时长：{name}',
+    videoError:'视频加载失败：{name}',
     brush:'画笔', eraser:'橡皮', select:'选区',
     target:'目标', trackA:'强度', trackB:'表现', value:'值',
     undo:'撤销',
@@ -174,6 +172,8 @@ const I18N = {
     dropText2:'<b>Left drag</b> draw　<b>Wheel</b> zoom　<b>Middle drag</b> pan',
     dropText3:'<b>1</b> Brush　<b>2</b> Eraser　<b>3</b> Select　<b>Ctrl+Z</b> Undo　<b>Space</b> Play/Pause',
     open:'Open video', notLoaded:'Not loaded',
+    badFile:'Please choose a video file', badDuration:'Cannot read video duration: {name}',
+    videoError:'Video failed to load: {name}',
     brush:'Brush', eraser:'Eraser', select:'Select',
     target:'Target', trackA:'Intensity', trackB:'Performance', value:'Value',
     undo:'Undo',
@@ -205,6 +205,7 @@ function applyLang(){
   document.documentElement.lang = LANG === 'zh' ? 'zh-CN' : 'en';
   document.title = T('title');
   document.querySelectorAll('[data-i18n]').forEach(el => {
+    if (el.hasAttribute('data-i18n-skip')) return;   // 忙状态, 循环后单独设置
     el.textContent = T(el.dataset.i18n);
   });
   document.querySelectorAll('[data-i18n-html]').forEach(el => {
@@ -216,7 +217,17 @@ function applyLang(){
   const lb = document.getElementById('btnLang');
   lb.textContent = LANG === 'zh' ? 'EN' : '中';
   lb.title = LANG === 'zh' ? 'Switch to English' : '切换到中文';
-  if (!S.scanning) document.getElementById('scan').textContent = T('scan');
+
+  // 忙状态元素被通用循环跳过, 这里按当前状态补文本
+  const scanBtn = document.getElementById('scan');
+  scanBtn.disabled = S.scanning;
+  scanBtn.textContent = S.scanning
+    ? T('scanningPct', {p: S.scanPct})
+    : T('scan');
+  const autoBtn = document.getElementById('auto');
+  if (!autoBtn.disabled) autoBtn.textContent = T('auto');
+  const saveBtn = document.getElementById('save');
+  if (!saveBtn.dataset.busy) saveBtn.textContent = T('saveDraft');
 }
 
 // ── 状态 ────────────────────────────────────────────────────────
@@ -229,7 +240,6 @@ const S = {
   view0: 0, view1: 10,       // 可视时间窗
   mode: 1,                   // 1画笔 2橡皮 3选区
   target: 'a',
-  val: 50,
   brushSec: 0.08,
   undo: [], redo: [],
   drawing: false,
@@ -239,7 +249,9 @@ const S = {
   ready: false,
   mv: null,          // 画面运动轨(扫描产生)
   cut: null,         // 切镜标记
+  lastScan: null,    // 最近一次扫描统计
   scanning: false,
+  scanPct: 0,        // 扫描进度(供语言切换时刷新文本)
 };
 
 const $ = s => document.querySelector(s);
@@ -445,6 +457,7 @@ function strokeTo(canvas, ev){
 
 function bindTrack(canvas){
   canvas.addEventListener('pointerdown', e => {
+    if (S.scanning) return;          // 扫描期间锁定画布编辑
     if (!S.ready) return;
     if (e.button === 1){ // 中键平移
       S.panning = {x:e.clientX, v0:S.view0, v1:S.view1};
@@ -523,16 +536,50 @@ function clampView(){
 }
 
 // ── 载入 ────────────────────────────────────────────────────────
+let curURL = null;                 // 当前视频的 object URL
 function loadFile(file){
-  const url = URL.createObjectURL(file);
-  vid.src = url;
+  // 文件选择与拖拽都走这里, 统一校验类型
+  if (!file || !file.type.startsWith('video/')){
+    alert(T('badFile'));
+    return;
+  }
+
+  // 换片前清空旧数据, 避免上一段曲线残留
+  S.a = new Float32Array(0);
+  S.b = new Float32Array(0);
+  S.mv = null;
+  S.cut = null;
+  S.lastScan = null;
+  S.undo.length = 0;
+  S.redo.length = 0;
+  S.sel0 = S.sel1 = null;
+  S.ready = false;
+  S.dur = 0;
+  $('#undo').disabled = true;
+  $('#hintA').textContent = '—';
+  $('#hintB').textContent = '—';
+  $('#stat').textContent = '—';
+  draw();
+
+  const old = curURL;
+  curURL = URL.createObjectURL(file);
+  vid.src = curURL;
+  // 旧 object URL 不再使用, 及时释放
+  if (old) URL.revokeObjectURL(old);
   $('#fname').textContent = file.name;
   $('#fname').removeAttribute('data-i18n');
   $('#drop').classList.add('hide');
 
   vid.onloadedmetadata = () => {
-    S.dur = vid.duration || 0;
-    const n = Math.max(1, Math.ceil(S.dur*HZ));
+    const d = vid.duration;
+    S.dur = Number.isFinite(d) && d > 0 ? d : 0;
+    if (!S.dur){
+      S.ready = false;
+      alert(T('badDuration', {name: file.name}));
+      return;
+    }
+    // 上限 200 万点, 防止异常时长(Infinity)导致超大分配
+    const n = Math.min(2_000_000, Math.max(1, Math.ceil(S.dur*HZ)));
     ensure(n);
     S.view0 = 0;
     S.view1 = Math.min(S.dur, 10);
@@ -550,7 +597,7 @@ function initAudio(){
   actx = new (window.AudioContext||window.webkitAudioContext)();
   srcNode = actx.createMediaElementSource(vid);
   muteGain = actx.createGain();
-  muteGain.gain.value = 0;
+  muteGain.gain.value = 1;
   srcNode.connect(muteGain);
   muteGain.connect(actx.destination);
 }
@@ -560,190 +607,213 @@ async function scanAudio(){
   if (S.scanning) return;
   initAudio();
   if (actx.state === 'suspended') await actx.resume();
+
+  const btn = $('#scan');
+  const play = $('#play');
   S.scanning = true;
-
-  snap();
-  const n = S.a.length;
-  const accA = new Float32Array(n);
-  const accV = new Float32Array(n);
-  const accC = new Float32Array(n);
-  const cntA = new Uint16Array(n);
-  const cntV = new Uint16Array(n);
-  let peakA = 0, peakV = 0;
-
-  // 音频: ScriptProcessor 在音频线程采样, 最小化也不会中断
-  const proc = actx.createScriptProcessor(2048, 1, 1);
-  proc.onaudioprocess = (ev) => {
-    if (!S.scanning) return;
-    const ch = ev.inputBuffer.getChannelData(0);
-    let s2 = 0;
-    for (let i=0;i<ch.length;i++) s2 += ch[i]*ch[i];
-    const rms = Math.sqrt(s2/ch.length);
-    if (rms > peakA) peakA = rms;
-    const idx = Math.round(vid.currentTime * HZ);
-    if (idx > 0 && idx < n){
-      accA[idx] += rms;
-      cntA[idx] += 1;
-    }
-  };
-  try { srcNode.connect(proc); proc.connect(muteGain); } catch(e){}
-
-  // 画面: 128x72 三层分析 (仅前台有效)
-  const SW = 128, SH = 72;
-  const sc = document.createElement('canvas');
-  sc.width = SW; sc.height = SH;
-  const sctx = sc.getContext('2d', {willReadFrequently:true});
-
-  const wmap = new Float32Array(SW*SH);
-  for (let y=0;y<SH;y++){
-    for (let x=0;x<SW;x++){
-      const dx = (x/(SW-1)-0.5)*2, dy = (y/(SH-1)-0.5)*2;
-      wmap[y*SW+x] = 1 - 0.75*Math.sqrt(dx*dx+dy*dy)/1.4142;
-    }
-  }
-  const BW=4, BH=4;
-  const bIdx = new Int32Array(SW*SH);
-  for (let y=0;y<SH;y++){
-    for (let x=0;x<SW;x++){
-      const bx = Math.min(BW-1,(x*BW/SW)|0);
-      const by = Math.min(BH-1,(y*BH/SH)|0);
-      bIdx[y*SW+x] = by*BW+bx;
-    }
-  }
-  const bsSum = new Float32Array(BW*BH);
-  const bsCnt = new Float32Array(BW*BH);
-
-  let prevFrame = null;
-  let vOk = true;
-  let frameNo = 0;
-  let cutCount = 0;
+  S.scanPct = 0;
+  btn.disabled = true;
+  play.disabled = true;
+  btn.textContent = T('scanningPct', {p: 0});
 
   const prevRate = vid.playbackRate;
-  vid.playbackRate = 1.0;
-  vid.volume = 1;
-  vid.currentTime = 0;
-  await vid.play();
+  let proc = null;
 
-  $('#scan').textContent = T('scanningPct', {p: 0});
-  $('#scan').disabled = true;
+  try {
+    // 扫描期间静音: 只做响度分析, 结束后在 finally 中恢复
+    muteGain.gain.value = 0;
 
-  await new Promise(resolve => {
-    const tick = () => {
-      const t = vid.currentTime;
-      let diff = 0, hasDiff = false, isCut = 0;
-      if (vOk && !document.hidden && (frameNo++ % 6 === 0)){
-        try {
-          sctx.drawImage(vid, 0, 0, SW, SH);
-          const img = sctx.getImageData(0,0,SW,SH).data;
-          if (prevFrame){
-            bsSum.fill(0); bsCnt.fill(0);
-            let wacc = 0, wsum = 0;
-            for (let p=0, i=0; p<img.length; p+=4, i++){
-              const d = (Math.abs(img[p]   - prevFrame[p])
-                       + Math.abs(img[p+1] - prevFrame[p+1])
-                       + Math.abs(img[p+2] - prevFrame[p+2])) / 3 / 255;
-              const w = wmap[i];
-              wacc += d*w; wsum += w;
-              const bi = bIdx[i];
-              bsSum[bi] += d; bsCnt[bi] += 1;
-            }
-            const weighted = wsum > 0 ? wacc/wsum : 0;
-            let blockMax = 0, bigBlocks = 0;
-            for (let i=0;i<bsSum.length;i++){
-              if (bsCnt[i] <= 0) continue;
-              const bm = bsSum[i]/bsCnt[i];
-              if (bm > blockMax) blockMax = bm;
-              if (bm > 0.16) bigBlocks++;
-            }
-            isCut = (bigBlocks >= BW*BH*0.8) ? 1 : 0;
-            diff = weighted*0.55 + blockMax*0.45;
-            hasDiff = true;
-          }
-          prevFrame = img;
-        } catch(e){ vOk = false; }
+    snap();
+    const n = S.a.length;
+    const accA = new Float32Array(n);
+    const accV = new Float32Array(n);
+    const accC = new Float32Array(n);
+    const cntA = new Uint16Array(n);
+    const cntV = new Uint16Array(n);
+    let peakA = 0, peakV = 0;
+
+    // 音频: ScriptProcessor 在音频线程采样, 最小化也不会中断
+    proc = actx.createScriptProcessor(2048, 1, 1);
+    proc.onaudioprocess = (ev) => {
+      if (!S.scanning) return;
+      const ch = ev.inputBuffer.getChannelData(0);
+      let s2 = 0;
+      for (let i=0;i<ch.length;i++) s2 += ch[i]*ch[i];
+      const rms = Math.sqrt(s2/ch.length);
+      if (rms > peakA) peakA = rms;
+      const idx = Math.round(vid.currentTime * HZ);
+      if (idx > 0 && idx < n){
+        accA[idx] += rms;
+        cntA[idx] += 1;
       }
-      if (diff > peakV) peakV = diff;
-      if (isCut) cutCount++;
-
-      if (hasDiff){
-        const idx = Math.round(t*HZ);
-        if (idx > 0 && idx < n){
-          accV[idx] += diff; cntV[idx] += 1;
-          if (isCut) accC[idx] += 1;
-        }
-      }
-
-      if ((frameNo & 31) === 0 && S.dur > 0){
-        $('#scan').textContent = T('scanningPct',
-          {p: Math.min(99, Math.floor(t/S.dur*100))});
-      }
-
-      if (vid.ended || t >= S.dur-0.05){ resolve(); return; }
-      requestAnimationFrame(tick);
     };
-    requestAnimationFrame(tick);
-  });
+    try { srcNode.connect(proc); proc.connect(muteGain); } catch(e){}
 
-  vid.pause();
-  vid.playbackRate = prevRate;
-  vid.currentTime = 0;
-  S.scanning = false;
-  try { srcNode.disconnect(proc); } catch(e){}
-  try { proc.disconnect(); } catch(e){}
+    // 画面: 128x72 三层分析 (仅前台有效)
+    const SW = 128, SH = 72;
+    const sc = document.createElement('canvas');
+    sc.width = SW; sc.height = SH;
+    const sctx = sc.getContext('2d', {willReadFrequently:true});
 
-  const cA = new Float32Array(n), cV = new Float32Array(n);
-  const cutFlag = new Uint8Array(n);
-  let mxA = 0, mxV = 0, covA = 0, covV = 0;
-  for (let i=0;i<n;i++){
-    if (cntA[i]){ cA[i] = accA[i]/cntA[i]; if (cA[i] > mxA) mxA = cA[i]; covA++; }
-    if (cntV[i]){ cV[i] = accV[i]/cntV[i]; if (cV[i] > mxV) mxV = cV[i]; covV++; }
-    if (accC[i] > 0) cutFlag[i] = 1;
-  }
-  if (mxA <= 0) mxA = 1;
-  if (mxV <= 0) mxV = 1;
-
-  const cVfix = cV.slice();
-  for (let i=0;i<n;i++){
-    if (!cutFlag[i]) continue;
-    let s3 = 0, k = 0;
-    for (let j=Math.max(0,i-5); j<=Math.min(n-1,i+5); j++){
-      if (!cutFlag[j] && cntV[j]){ s3 += cV[j]; k++; }
+    const wmap = new Float32Array(SW*SH);
+    for (let y=0;y<SH;y++){
+      for (let x=0;x<SW;x++){
+        const dx = (x/(SW-1)-0.5)*2, dy = (y/(SH-1)-0.5)*2;
+        wmap[y*SW+x] = 1 - 0.75*Math.sqrt(dx*dx+dy*dy)/1.4142;
+      }
     }
-    cVfix[i] = k ? s3/k : cV[i]*0.3;
+    const BW=4, BH=4;
+    const bIdx = new Int32Array(SW*SH);
+    for (let y=0;y<SH;y++){
+      for (let x=0;x<SW;x++){
+        const bx = Math.min(BW-1,(x*BW/SW)|0);
+        const by = Math.min(BH-1,(y*BH/SH)|0);
+        bIdx[y*SW+x] = by*BW+bx;
+      }
+    }
+    const bsSum = new Float32Array(BW*BH);
+    const bsCnt = new Float32Array(BW*BH);
+
+    let prevFrame = null;
+    let vOk = true;
+    let frameNo = 0;
+    let cutCount = 0;
+
+    vid.playbackRate = 1.0;
+    vid.volume = 1;
+    vid.currentTime = 0;
+    await vid.play();
+
+    await new Promise(resolve => {
+      const tick = () => {
+        const t = vid.currentTime;
+        let diff = 0, hasDiff = false, isCut = 0;
+        if (vOk && !document.hidden && (frameNo++ % 6 === 0)){
+          try {
+            sctx.drawImage(vid, 0, 0, SW, SH);
+            const img = sctx.getImageData(0,0,SW,SH).data;
+            if (prevFrame){
+              bsSum.fill(0); bsCnt.fill(0);
+              let wacc = 0, wsum = 0;
+              for (let p=0, i=0; p<img.length; p+=4, i++){
+                const d = (Math.abs(img[p]   - prevFrame[p])
+                         + Math.abs(img[p+1] - prevFrame[p+1])
+                         + Math.abs(img[p+2] - prevFrame[p+2])) / 3 / 255;
+                const w = wmap[i];
+                wacc += d*w; wsum += w;
+                const bi = bIdx[i];
+                bsSum[bi] += d; bsCnt[bi] += 1;
+              }
+              const weighted = wsum > 0 ? wacc/wsum : 0;
+              let blockMax = 0, bigBlocks = 0;
+              for (let i=0;i<bsSum.length;i++){
+                if (bsCnt[i] <= 0) continue;
+                const bm = bsSum[i]/bsCnt[i];
+                if (bm > blockMax) blockMax = bm;
+                if (bm > 0.16) bigBlocks++;
+              }
+              isCut = (bigBlocks >= BW*BH*0.8) ? 1 : 0;
+              diff = weighted*0.55 + blockMax*0.45;
+              hasDiff = true;
+            }
+            prevFrame = img;
+          } catch(e){ vOk = false; }
+        }
+        if (diff > peakV) peakV = diff;
+        if (isCut) cutCount++;
+
+        if (hasDiff){
+          const idx = Math.round(t*HZ);
+          if (idx > 0 && idx < n){
+            accV[idx] += diff; cntV[idx] += 1;
+            if (isCut) accC[idx] += 1;
+          }
+        }
+
+        if ((frameNo & 31) === 0 && S.dur > 0){
+          S.scanPct = Math.min(99, Math.floor(t/S.dur*100));
+          $('#scan').textContent = T('scanningPct', {p: S.scanPct});
+        }
+
+        // vid.onerror 会复位 S.scanning, 让循环尽快退出
+        if (vid.error || !S.scanning || vid.ended || t >= S.dur-0.05){
+          resolve(); return;
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+
+    if (vid.error) throw new Error('video error');
+
+    vid.pause();
+    vid.currentTime = 0;
+
+    const cA = new Float32Array(n), cV = new Float32Array(n);
+    const cutFlag = new Uint8Array(n);
+    let mxA = 0, mxV = 0, covA = 0, covV = 0;
+    for (let i=0;i<n;i++){
+      if (cntA[i]){ cA[i] = accA[i]/cntA[i]; if (cA[i] > mxA) mxA = cA[i]; covA++; }
+      if (cntV[i]){ cV[i] = accV[i]/cntV[i]; if (cV[i] > mxV) mxV = cV[i]; covV++; }
+      if (accC[i] > 0) cutFlag[i] = 1;
+    }
+    if (mxA <= 0) mxA = 1;
+    if (mxV <= 0) mxV = 1;
+
+    const cVfix = cV.slice();
+    for (let i=0;i<n;i++){
+      if (!cutFlag[i]) continue;
+      let s3 = 0, k = 0;
+      for (let j=Math.max(0,i-5); j<=Math.min(n-1,i+5); j++){
+        if (!cutFlag[j] && cntV[j]){ s3 += cV[j]; k++; }
+      }
+      cVfix[i] = k ? s3/k : cV[i]*0.3;
+    }
+
+    let wA = 0.65, wV = 0.35;
+    if (mxA < 1e-6){ wA = 0; wV = 1; }
+    else if (mxV < 1e-6){ wV = 0; wA = 1; }
+
+    const tmp = new Float32Array(n);
+    const mvNorm = new Float32Array(n);
+    for (let i=0;i<n;i++){
+      mvNorm[i] = cVfix[i]/mxV*100;
+      tmp[i] = (cA[i]/mxA*wA + cVfix[i]/mxV*wV) * 100;
+    }
+
+    let v = tmp[0] || 0;
+    for (let i=0;i<n;i++){
+      const x = tmp[i];
+      v += (x-v) * (x>v ? 0.22 : 0.05);
+      S.a[i] = v;
+    }
+
+    const rateA = covA/n;
+    S.mv = mvNorm;
+    S.cut = cutFlag;
+    S.lastScan = { peakA:+peakA.toFixed(4), peakV:+peakV.toFixed(3),
+                   wA, wV, vOk, cutCount,
+                   covAudio:+rateA.toFixed(3), covVideo:+(covV/n).toFixed(3) };
+    console.log('[scan]', S.lastScan);
+
+    if (rateA < 0.85){
+      alert(T('audioLow', {p: (rateA*100).toFixed(0)}));
+    }
+  } finally {
+    S.scanning = false;
+    btn.disabled = false;
+    btn.textContent = T('scan');
+    play.disabled = false;
+    // 恢复播放音量: 静音只用于扫描分析, 不应永久保留
+    if (muteGain) muteGain.gain.value = 1;
+    vid.playbackRate = prevRate;
+    try { vid.pause(); } catch(e){}
+    if (proc){
+      try { srcNode.disconnect(proc); } catch(e){}
+      try { proc.disconnect(); } catch(e){}
+    }
+    draw();
   }
-
-  let wA = 0.65, wV = 0.35;
-  if (mxA < 1e-6){ wA = 0; wV = 1; }
-  else if (mxV < 1e-6){ wV = 0; wA = 1; }
-
-  const tmp = new Float32Array(n);
-  const mvNorm = new Float32Array(n);
-  for (let i=0;i<n;i++){
-    mvNorm[i] = cVfix[i]/mxV*100;
-    tmp[i] = (cA[i]/mxA*wA + cVfix[i]/mxV*wV) * 100;
-  }
-
-  let v = tmp[0] || 0;
-  for (let i=0;i<n;i++){
-    const x = tmp[i];
-    v += (x-v) * (x>v ? 0.22 : 0.05);
-    S.a[i] = v;
-  }
-
-  const rateA = covA/n;
-  S.mv = mvNorm;
-  S.cut = cutFlag;
-  S.lastScan = { peakA:+peakA.toFixed(4), peakV:+peakV.toFixed(3),
-                 wA, wV, vOk, cutCount,
-                 covAudio:+rateA.toFixed(3), covVideo:+(covV/n).toFixed(3) };
-  console.log('[scan]', S.lastScan);
-
-  if (rateA < 0.85){
-    alert(T('audioLow', {p: (rateA*100).toFixed(0)}));
-  }
-  $('#scan').textContent = T('scan');
-  $('#scan').disabled = false;
-  draw();
 }
 
 // ── 用 A 生成 B（B 模式规则）───────────────────────────────────
@@ -780,8 +850,13 @@ function saveDraft(){
       b:Array.from(S.b, v=>Math.round(v)),
       ts:Date.now()
     }));
-    $('#save').textContent = T('saved');
-    setTimeout(()=>$('#save').textContent=T('saveDraft'), 1200);
+    const btn = $('#save');
+    btn.dataset.busy = '1';          // 标记忙状态, applyLang 不覆盖
+    btn.textContent = T('saved');
+    setTimeout(() => {
+      delete btn.dataset.busy;
+      btn.textContent = T('saveDraft');
+    }, 1200);
   }catch(e){ alert(T('saveFailed', {err: e.message})); }
 }
 function restoreDraft(name){
@@ -841,7 +916,10 @@ document.addEventListener('dragover', e => { e.preventDefault(); });
 document.addEventListener('drop', e => {
   e.preventDefault();
   const f = e.dataTransfer.files[0];
-  if (f) loadFile(f);
+  if (!f) return;
+  // 拖拽也要校验类型, 非视频直接拒绝
+  if (!f.type.startsWith('video/')){ alert(T('badFile')); return; }
+  loadFile(f);
 });
 
 $('#m1').onclick = () => setMode(1);
@@ -861,9 +939,8 @@ function setTarget(t){
   $('#tB').classList.toggle('on', t==='b');
 }
 
-$('#val').oninput = e => { $('#valtxt').textContent = e.target.value; };
 $('#undo').onclick = undo;
-$('#scan').onclick = scanAudio;
+$('#scan').onclick = () => { scanAudio().catch(e => console.error('[scan]', e)); };
 $('#fill').onclick = genB;
 $('#auto').onclick = async () => {
   if (!S.ready || S.scanning) return;
@@ -895,9 +972,18 @@ $('#btnLang').onclick = () => {
 };
 applyLang();
 
-$('#play').onclick = () => { vid.paused ? vid.play() : vid.pause(); };
+$('#play').onclick = () => {
+  if (S.scanning) return;          // 扫描期间禁止播放控制
+  vid.paused ? vid.play() : vid.pause();
+};
 vid.onplay = () => $('#play').textContent = '❚❚';
 vid.onpause = () => $('#play').textContent = '▶';
+vid.onerror = () => {
+  S.ready = false;
+  if (S.scanning) S.scanning = false;   // 让扫描循环尽快退出
+  draw();
+  alert(T('videoError', {name: $('#fname').textContent || ''}));
+};
 
 $('#scrub').oninput = e => {
   if (!S.ready) return;
@@ -909,7 +995,11 @@ $('#scrub').onchange = () => { S.scrubbing = false; };
 
 document.addEventListener('keydown', e => {
   if (e.target.tagName === 'INPUT') return;
-  if (e.key === ' '){ e.preventDefault(); vid.paused ? vid.play() : vid.pause(); }
+  if (e.key === ' '){
+    e.preventDefault();
+    if (S.scanning) return;        // 扫描期间禁止空格暂停
+    vid.paused ? vid.play() : vid.pause();
+  }
   else if (e.key === '1') setMode(1);
   else if (e.key === '2') setMode(2);
   else if (e.key === '3') setMode(3);

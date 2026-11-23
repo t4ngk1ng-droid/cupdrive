@@ -54,6 +54,9 @@ class BleWorker:
         self.error = ""
         self._scan_cache = {}
         self._lock = threading.Lock()
+        # 连接/断开/扫描在同一个 loop 内串行，避免交叉改动链路状态；
+        # _panic 刻意不排队，急停必须能立即执行。
+        self._op_lock = asyncio.Lock()
 
         # 播放会话
         self._gen = 0
@@ -82,7 +85,7 @@ class BleWorker:
             frame = None
             with self._lock:
                 if (self._active and not self.mock and self.link.connected
-                        and time.time() - self._last_send > WATCHDOG_S):
+                        and time.monotonic() - self._last_send > WATCHDOG_S):
                     self._active = False
                     self._gen += 1
                     self.guard = MultiGuard(self.caps, slew_per_sec=SLEW)
@@ -97,7 +100,8 @@ class BleWorker:
     # ── 扫描 ──────────────────────────────────────────────────
     async def _scan(self, sec):
         sec = max(1.0, min(float(sec), 20.0))
-        items = await BLE.scan_devices(sec)
+        async with self._op_lock:
+            items = await BLE.scan_devices(sec)
         with self._lock:
             for it in items:
                 if it["name"]:
@@ -115,27 +119,30 @@ class BleWorker:
 
     # ── 连接 ──────────────────────────────────────────────────
     async def _connect(self, address, name):
-        with self._lock:
-            dev = self._scan_cache.get(address) or self._scan_cache.get(name)
-        if dev is None:
-            items = await BLE.scan_devices(8.0)
-            for it in items:
-                if it["address"] == address or (name and it["name"].lower() == name.lower()):
-                    dev = it["dev"]
-                    break
-        if dev is None:
-            raise RuntimeError("找不到设备。手机 App 还占着连接吗？先彻底杀掉 App 再试。")
+        async with self._op_lock:
+            # 先作废旧会话并清空状态，再断开/连接，
+            # 避免连接期间旧会话的帧写进新设备。
+            with self._lock:
+                self._gen += 1
+                self._active = False
+                self.guard = MultiGuard(self.caps, slew_per_sec=SLEW)
+                self.last = [0, 0, 0, 0]
+                dev = self._scan_cache.get(address) or self._scan_cache.get(name)
+            if dev is None:
+                items = await BLE.scan_devices(8.0)
+                for it in items:
+                    if it["address"] == address or (name and it["name"].lower() == name.lower()):
+                        dev = it["dev"]
+                        break
+            if dev is None:
+                raise RuntimeError("找不到设备。手机 App 还占着连接吗？先彻底杀掉 App 再试。")
 
-        await self.link.close()
-        await self.link.connect(dev, name)
-        with self._lock:
-            self.mock = False
-            self.error = ""
-            self._gen += 1
-            self._active = False
-            self.guard = MultiGuard(self.caps, slew_per_sec=SLEW)
-            self.last = [0, 0, 0, 0]
-        return True
+            await self.link.close()
+            await self.link.connect(dev, name)
+            with self._lock:
+                self.mock = False
+                self.error = ""
+            return True
 
     def connect(self, address, name=""):
         try:
@@ -161,7 +168,8 @@ class BleWorker:
 
     # ── 断开 ──────────────────────────────────────────────────
     async def _disconnect(self):
-        await self.link.close()
+        async with self._op_lock:
+            await self.link.close()
         with self._lock:
             self.mock = False
             self._active = False
@@ -191,10 +199,21 @@ class BleWorker:
                 caps[ch] = cap
         if not caps:
             caps = {P.CH_VIB: BLE.HARD_CAPS[P.CH_VIB]}
+        # 播放中切换通道时设备会停在最后强度：先让会话失效。
         with self._lock:
-            self.caps = caps
+            was_active = self._active
+            connected = self.link.connected
             self._gen += 1
             self._active = False
+        # 持锁时不能调 self.call（会死锁）：先释放锁再同步写零帧，
+        # 最多等 2 秒，最后重建 guard。
+        if was_active and connected:
+            try:
+                self.call(self._panic(), timeout=2)
+            except Exception as e:
+                self.error = "切换通道归零失败: " + str(e)
+        with self._lock:
+            self.caps = caps
             self.guard = MultiGuard(caps, slew_per_sec=SLEW)
         return {"ok": True, "caps": caps,
                 "names": {ch: BLE.CH_NAMES.get(ch, str(ch)) for ch in caps}}
@@ -204,7 +223,7 @@ class BleWorker:
         with self._lock:
             self._gen += 1
             self._active = True
-            self._last_send = time.time()
+            self._last_send = time.monotonic()
             self.guard = MultiGuard(self.caps, slew_per_sec=SLEW)
             return {"ok": True, "gen": self._gen}
 
@@ -215,10 +234,10 @@ class BleWorker:
             return False
         values = [v0, v1, v2, v3]
         with self._lock:
-            if gen and gen != self._gen:
-                return False        # 旧会话的帧，丢弃
-            if gen:
-                self._last_send = time.time()
+            # 必须处于播放会话且代号匹配；gen=0 不再绕过检查。
+            if not self._active or gen != self._gen:
+                return False        # 未开始播放或旧会话的帧，丢弃
+            self._last_send = time.monotonic()
             pcts = {ch: max(0.0, min(100.0, float(values[ch]))) for ch in self.caps}
             frame = self.guard.set(pcts)
             self.last = list(frame[3:7])
@@ -243,23 +262,33 @@ class BleWorker:
             self._active = False
             self.guard = MultiGuard(self.caps, slew_per_sec=SLEW)
             self.last = [0, 0, 0, 0]
+        connected = self.link.connected
+        ok = False
         try:
-            self.call(self._panic(), timeout=5)
+            ok = bool(self.call(self._panic(), timeout=5))
         except Exception as e:
             self.error = "归零失败: " + str(e)
-        return {"ok": True,
+        if connected and not ok:
+            # 写失败不吞掉，状态页能看到
+            self.error = "归零帧写入失败: " + (self.link.last_error or "unknown")
+        # ok 表示"状态已安全"：没有连接（含 Mock）本来就没有设备可归零；
+        # written 才表示真的写成功，前端可用它区分。
+        return {"ok": (not connected) or ok,
+                "written": ok,
+                "connected": connected,
                 "writes_ok": self.link.writes_ok,
                 "writes_fail": self.link.writes_fail}
 
     async def _panic(self):
         zero = P.aa_frame(0x08, [0, 0, 0, 0, 0, 0])
         if self.link.connected:
-            await self.link.send(zero)
+            return await self.link.send(zero)
+        return False
 
     # ── 状态 ──────────────────────────────────────────────────
     def status(self):
         return {
-            "connected": self.mock or self.link.connected,
+            "connected": self.mock or self.link.ready,
             "mock": self.mock,
             "device": "mock" if self.mock else (self.link.device or ""),
             "sent": self.sent if self.mock else self.link.writes_ok,
@@ -302,11 +331,11 @@ class Core:
         self.curves_dir = os.path.abspath(curves_dir)
         self.examples_dir = examples_dir
         self.ble = BleWorker()
-        self.last_request = time.time()
+        self.last_request = time.monotonic()
         os.makedirs(self.curves_dir, exist_ok=True)
 
     def touch(self):
-        self.last_request = time.time()
+        self.last_request = time.monotonic()
 
     # ── 设备 ──────────────────────────────────────────────────
     def scan(self, sec=6):
@@ -358,12 +387,14 @@ class Core:
         items = []
         for p in glob.glob(os.path.join(self.curves_dir, "*.json")):
             try:
+                if os.path.basename(p).startswith("."):
+                    continue        # 跳过 .incoming-* 等临时文件
                 if os.path.islink(p) or not os.path.isfile(p):
                     continue
                 with open(p, encoding="utf-8") as f:
                     d = json.load(f)
                 b = d.get("b") or []
-                if not b:
+                if not isinstance(b, list) or not b:
                     continue
                 hz = float(d.get("hz", 10) or 10)
                 if not (1 <= hz <= 100):
