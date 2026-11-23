@@ -6,7 +6,7 @@
 
 Device: **MIZZZEE XW (醉清风)**. Other models need a protocol mapping first.
 
-**Version** v0.3.1 · Windows 10/11 x64
+**Version** v0.3.2 · Windows 10/11 x64
 
 ---
 

@@ -208,7 +208,7 @@ release.bat
 生成 `release\cupdrive-win64.zip`（约 21 MB 压缩，内含 Python）。上传：
 
 ```bash
-gh release create v0.3.2 release/cupdrive-win64.zip --title "cupdrive v0.3.2"
+gh release create v0.3.2 release/cupdrive-win64.zip --title "cupdrive v0.3.2" --notes-file docs/release-notes.md
 ```
 
 构建不依赖 pythonnet——BLE 走 `bleak`，界面走本地 HTTP 服务，所以

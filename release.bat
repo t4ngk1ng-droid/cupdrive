@@ -22,7 +22,9 @@ if errorlevel 1 goto fail
 
 echo [3/4] Adding docs ...
 copy /y README.md dist\cupdrive\ >nul
+copy /y README.zh-CN.md dist\cupdrive\ >nul
 copy /y LICENSE dist\cupdrive\ >nul
+xcopy /E /I /Y docs dist\cupdrive\docs >nul
 
 echo [4/4] Zipping ...
 if not exist release mkdir release

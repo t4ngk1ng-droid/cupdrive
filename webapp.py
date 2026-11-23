@@ -29,7 +29,6 @@ import os
 import sys
 import json
 import time
-import glob
 import secrets
 import threading
 import urllib.request
