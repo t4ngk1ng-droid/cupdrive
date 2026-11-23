@@ -15,7 +15,7 @@ Turn any video into Bluetooth toy motion — offline, no account.
 
 ### Read first
 
-- [中文使用说明](docs/usage.md) — calibration, connection, parameters, FAQ
+- [中文使用说明](https://github.com/t4ngk1ng-droid/cupdrive/blob/main/docs/usage.md) — calibration, connection, parameters, FAQ
 - Windows SmartScreen: **More info → Run anyway** (unsigned exe)
 
 Windows 10/11 x64.
