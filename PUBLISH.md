@@ -50,8 +50,8 @@ Produces `release\cupdrive-win64.zip` (≈21 MB compressed, Python bundled, no
 installer). Upload it with the release notes:
 
 ```bash
-gh release create v0.3.0 release/cupdrive-win64.zip ^
-  --title "cupdrive v0.3.0" ^
+gh release create v0.3.1 release/cupdrive-win64.zip ^
+  --title "cupdrive v0.3.1" ^
   --notes-file docs/release-notes.md
 ```
 

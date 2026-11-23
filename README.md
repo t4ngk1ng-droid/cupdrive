@@ -1,5 +1,7 @@
 # cupdrive
 
+**English** | [简体中文](README.zh-CN.md)
+
 **Turn any video into Bluetooth toy motion — offline, no account, no vendor content library.**
 
 ![cupdrive](docs/screenshot.png)
@@ -218,7 +220,7 @@ Produces `release\cupdrive-win64.zip` (≈21 MB compressed, Python bundled).
 Upload it:
 
 ```bash
-gh release create v0.3.0 release/cupdrive-win64.zip --title "cupdrive v0.3.0"
+gh release create v0.3.1 release/cupdrive-win64.zip --title "cupdrive v0.3.1"
 ```
 
 The build has no pythonnet dependency — BLE goes through `bleak`, the UI

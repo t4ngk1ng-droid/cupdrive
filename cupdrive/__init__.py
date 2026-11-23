@@ -1,6 +1,6 @@
 """cupdrive — 把视频节奏翻译成设备动作"""
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
 
 # 子模块按需导入：
 #   from cupdrive import protocol, safety, ble, tune
