@@ -2,6 +2,10 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
+### [⬇ Download for Windows x64 — 21 MB](https://github.com/t4ngk1ng-droid/cupdrive/releases/latest/download/cupdrive-win64.zip)
+
+> No Python, no installer. Unzip and run `cupdrive.exe`.
+
 > **中文版：[README.zh-CN.md](README.zh-CN.md)** · **使用说明：[docs/usage.md](docs/usage.md)**
 
 **Turn any video into Bluetooth toy motion — offline, no account, no vendor content library.**
@@ -33,9 +37,9 @@ other devices need a protocol mapping.
 
 ## Download
 
-**Windows 10/11 x64** — grab `cupdrive-win64.zip` from
-[Releases](../../releases), unzip anywhere writable (not `Program Files`), and
-run `cupdrive.exe`.
+**Windows 10/11 x64** —
+**[download `cupdrive-win64.zip`](https://github.com/t4ngk1ng-droid/cupdrive/releases/latest/download/cupdrive-win64.zip)**
+(21 MB), unzip anywhere writable (not `Program Files`), and run `cupdrive.exe`.
 
 > The exe is unsigned, so SmartScreen may warn on first launch:
 > **More info → Run anyway**.

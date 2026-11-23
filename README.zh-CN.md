@@ -2,6 +2,10 @@
 
 [English](README.md) | **简体中文**
 
+### [⬇ 下载 Windows 版（x64，21 MB）](https://github.com/t4ngk1ng-droid/cupdrive/releases/latest/download/cupdrive-win64.zip)
+
+> 不需要 Python，不需要安装器。解压后双击 `cupdrive.exe`。
+
 > **English：[README.md](README.md)** · **使用说明：[docs/usage.md](docs/usage.md)**
 
 **把任意视频变成设备动作——离线、免账号、不依赖厂商内容库。**
@@ -30,9 +34,9 @@ cupdrive 在浏览器里读取视频的节奏，加工成限速的运动曲线�
 
 ## 下载
 
-**Windows 10/11 x64**——到 [Releases](../../releases) 下载
-`cupdrive-win64.zip`，解压到有写权限的目录（不要放 `Program Files`），
-双击 `cupdrive.exe`。
+**Windows 10/11 x64**——
+**[下载 `cupdrive-win64.zip`](https://github.com/t4ngk1ng-droid/cupdrive/releases/latest/download/cupdrive-win64.zip)**
+（21 MB），解压到有写权限的目录（不要放 `Program Files`），双击 `cupdrive.exe`。
 
 > exe 没有代码签名，首次启动 SmartScreen 会提示：
 > **更多信息 → 仍要运行**。
