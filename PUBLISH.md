@@ -1,53 +1,58 @@
 # Publishing
 
+## 1. Create the repo
+
 ```bash
 cd cupdrive-github
 git init -b main          # 空仓库里不能先 git branch -M main
 git add -A
 git commit -m "initial commit: video-to-device pipeline with reverse-engineered BLE protocol"
-```
-
-Create an empty repo on GitHub first, then:
-
-```bash
-git remote add origin https://github.com/<your-name>/cupdrive.git
+git remote add origin https://github.com/<user>/cupdrive.git
 git push -u origin main
 ```
 
-Suggested repo description:
+Or with `gh`:
 
-> Turn any video into Bluetooth toy motion. Browser-based analysis, rate-limited
-> envelope, reverse-engineered MIZZZEE protocol, safety guard.
+```bash
+gh repo create cupdrive --public --source=. --remote=origin --push
+```
 
-Suggested topics:
+Repo description:
+
+> Turn any video into Bluetooth toy motion. Offline browser analysis,
+> rate-limited curves, reverse-engineered BLE protocol, hard safety caps.
+
+Topics:
 
 ```
 ble  bluetooth  reverse-engineering  haptics  video-analysis  numpy  bleak
 ```
 
-## Before you push
+## 2. Before you push
 
 - [ ] `python webapp.py --check` passes
 - [ ] `python webapp.py --selftest --no-browser` prints `[selftest] OK`
+- [ ] `python webapp.py --no-browser --port 8123` then
+      `curl -o /dev/null -w "%{http_code}" http://127.0.0.1:8123/api/status` → `403`
 - [ ] No real MAC addresses (`grep -r "50:F8" .` should be empty)
 - [ ] No personal paths (`grep -r "Lenovo" .`)
-- [ ] No large binaries (`du -sh .` — source under 300 KB; `dist/`, `release/`, `curves/` are ignored)
+- [ ] No large binaries (`du -sh .` — source under 400 KB; `dist/`, `release/`, `curves/` ignored)
 - [ ] `curves/` and `*.script.json` are ignored
 - [ ] `examples/script.example.json` has no real filename in `source`
 
-## Release
+## 3. Build the release
 
 ```bat
 release.bat
 ```
 
-Produces `release\cupdrive-win64.zip` (≈54 MB, Python bundled, no installer).
-Upload it:
+Produces `release\cupdrive-win64.zip` (≈21 MB compressed, Python bundled, no
+installer). Upload it with the release notes:
 
 ```bash
-gh release create v0.2.0 release/cupdrive-win64.zip ^
-  --title "cupdrive v0.2.0" ^
-  --notes "Windows x64. Unzip and run cupdrive.exe. No Python required."
+gh release create v0.3.0 release/cupdrive-win64.zip ^
+  --title "cupdrive v0.3.0" ^
+  --notes-file docs/release-notes.md
 ```
 
 Users download the zip from the Releases page, unzip anywhere writable, and

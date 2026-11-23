@@ -34,7 +34,7 @@ if errorlevel 1 goto fail
 echo.
 echo Done: release\cupdrive-win64.zip
 echo Upload it to GitHub Releases:
-echo   gh release create v0.2.0 release\cupdrive-win64.zip --title "cupdrive v0.2.0" --notes "Windows x64, no Python needed."
+echo   gh release create v0.3.0 release\cupdrive-win64.zip --title "cupdrive v0.3.0" --notes-file docs\release-notes.md
 pause
 exit /b 0
 
