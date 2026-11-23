@@ -29,7 +29,9 @@
   header{
     display:flex; align-items:center; gap:10px; padding:8px 12px;
     background:var(--panel); border-bottom:1px solid var(--line); flex:none;
+    flex-wrap:wrap; row-gap:6px;
   }
+  header button{white-space:nowrap; flex:none}
   button{
     background:#1e242c; color:var(--fg); border:1px solid var(--line);
     border-radius:5px; padding:5px 11px; cursor:pointer; font:inherit;
@@ -80,51 +82,52 @@
 <body>
 
 <div id="drop">
-  <h1>cupdrive · 标定台</h1>
+  <h1 data-i18n="dropTitle"></h1>
   <p>
-    把视频拖进来，或点这里选择文件<br>
-    <b>左键拖动</b> 画曲线　<b>滚轮</b> 缩放　<b>中键</b> 平移<br>
-    <b>1</b> 画笔　<b>2</b> 橡皮　<b>3</b> 选区　<b>Ctrl+Z</b> 撤销　<b>空格</b> 播放/暂停
+    <span data-i18n="dropText1"></span><br>
+    <span data-i18n-html="dropText2"></span><br>
+    <span data-i18n-html="dropText3"></span>
   </p>
   <input type="file" id="file" accept="video/*" style="display:none">
 </div>
 
 <header>
-  <button id="open">打开视频</button>
-  <span class="name" id="fname">未加载</span>
+  <button id="open" data-i18n="open"></button>
+  <span class="name" id="fname" data-i18n="notLoaded"></span>
   <div class="sep"></div>
-  <button id="m1" class="on" title="画笔">画笔</button>
-  <button id="m2" title="橡皮">橡皮</button>
-  <button id="m3" title="选区">选区</button>
+  <button id="m1" class="on" data-i18n="brush" data-i18n-title="brush"></button>
+  <button id="m2" data-i18n="eraser" data-i18n-title="eraser"></button>
+  <button id="m3" data-i18n="select" data-i18n-title="select"></button>
   <div class="sep"></div>
-  <span style="color:var(--dim)">目标</span>
-  <button id="tA" class="on" style="border-color:var(--a)">强度</button>
-  <button id="tB" style="border-color:var(--b)">表现</button>
+  <span style="color:var(--dim)" data-i18n="target"></span>
+  <button id="tA" class="on" style="border-color:var(--a)" data-i18n="trackA"></button>
+  <button id="tB" style="border-color:var(--b)" data-i18n="trackB"></button>
   <div class="sep"></div>
-  <span style="color:var(--dim)">值</span>
+  <span style="color:var(--dim)" data-i18n="value"></span>
   <input type="range" id="val" min="0" max="100" value="50" style="width:110px;accent-color:var(--hot)">
   <span id="valtxt" class="pill">50</span>
   <div class="sep"></div>
-  <button id="undo" disabled>撤销</button>
-  <button id="scan" title="扫描音频响度 + 画面运动">扫描</button>
-  <button id="fill" title="用表现轨按 B 模式规则从强度轨生成">生成表现</button>
+  <button id="undo" disabled data-i18n="undo"></button>
+  <button id="scan" data-i18n="scan" data-i18n-title="scanTitle"></button>
+  <button id="fill" data-i18n="fill" data-i18n-title="fillTitle"></button>
   <button id="auto" style="border-color:var(--hot);color:var(--hot);font-weight:600"
-          title="扫描 + 合成表现 + 自动导出, 一键到底">⚡ 全自动</button>
+          data-i18n="auto" data-i18n-title="autoTitle"></button>
   <div style="flex:1"></div>
-  <button id="save">保存草稿</button>
-  <button id="export">导出 JSON</button>
+  <button id="save" data-i18n="saveDraft"></button>
+  <button id="export" data-i18n="exportJson"></button>
+  <button id="btnLang" style="min-width:38px"></button>
 </header>
 
 <div id="stage">
   <div id="vwrap"><video id="vid" playsinline></video></div>
   <div id="edits">
     <div class="track">
-      <span class="lbl" style="color:var(--a)">强度 A · 素材本身有多激烈</span>
+      <span class="lbl" style="color:var(--a)" data-i18n="lblA"></span>
       <span class="hint" id="hintA">—</span>
       <canvas id="ca"></canvas>
     </div>
     <div class="track">
-      <span class="lbl" style="color:var(--b)">表现 B · 设备此刻该怎么做</span>
+      <span class="lbl" style="color:var(--b)" data-i18n="lblB"></span>
       <span class="hint" id="hintB">—</span>
       <canvas id="cb"></canvas>
     </div>
@@ -141,6 +144,80 @@
 <script>
 (() => {
 'use strict';
+
+// ── 文案 / 语言 ─────────────────────────────────────────────────
+const I18N = {
+  zh: {
+    title:'cupdrive · 标定台', dropTitle:'cupdrive · 标定台',
+    dropText1:'把视频拖进来，或点这里选择文件',
+    dropText2:'<b>左键拖动</b> 画曲线　<b>滚轮</b> 缩放　<b>中键</b> 平移',
+    dropText3:'<b>1</b> 画笔　<b>2</b> 橡皮　<b>3</b> 选区　<b>Ctrl+Z</b> 撤销　<b>空格</b> 播放/暂停',
+    open:'打开视频', notLoaded:'未加载',
+    brush:'画笔', eraser:'橡皮', select:'选区',
+    target:'目标', trackA:'强度', trackB:'表现', value:'值',
+    undo:'撤销',
+    scan:'扫描', scanTitle:'扫描音频响度 + 画面运动',
+    fill:'生成表现', fillTitle:'用表现轨按 B 模式规则从强度轨生成',
+    auto:'⚡ 全自动', autoTitle:'扫描 + 合成表现 + 自动导出, 一键到底',
+    saveDraft:'保存草稿', exportJson:'导出 JSON',
+    lblA:'强度 A · 素材本身有多激烈',
+    lblB:'表现 B · 设备此刻该怎么做',
+    scanningPct:'扫描 {p}%', audioLow:'音频覆盖不足：{p}%',
+    saved:'已保存', saveFailed:'保存失败: {err}',
+    draftConfirm:'发现同名草稿（{ts}），恢复？',
+    auto1:'① 采样音频…', auto2:'② 合成表现轨…', auto3:'③ 导出…',
+    autoDone:'✓ 完成', autoFail:'✗ 失败',
+  },
+  en: {
+    title:'cupdrive · Calibrator', dropTitle:'cupdrive · Calibrator',
+    dropText1:'Drop a video here, or click to choose a file',
+    dropText2:'<b>Left drag</b> draw　<b>Wheel</b> zoom　<b>Middle drag</b> pan',
+    dropText3:'<b>1</b> Brush　<b>2</b> Eraser　<b>3</b> Select　<b>Ctrl+Z</b> Undo　<b>Space</b> Play/Pause',
+    open:'Open video', notLoaded:'Not loaded',
+    brush:'Brush', eraser:'Eraser', select:'Select',
+    target:'Target', trackA:'Intensity', trackB:'Performance', value:'Value',
+    undo:'Undo',
+    scan:'Scan', scanTitle:'Scan audio loudness + motion',
+    fill:'Generate B', fillTitle:'Build the performance track from intensity',
+    auto:'⚡ Auto', autoTitle:'Scan + generate + export in one go',
+    saveDraft:'Save draft', exportJson:'Export JSON',
+    lblA:'Intensity A · how intense the source is',
+    lblB:'Performance B · what the device should do',
+    scanningPct:'Scanning {p}%', audioLow:'Audio coverage too low: {p}%',
+    saved:'Saved', saveFailed:'Save failed: {err}',
+    draftConfirm:'Draft found ({ts}). Restore?',
+    auto1:'① Sampling audio…', auto2:'② Building B…', auto3:'③ Exporting…',
+    autoDone:'✓ Done', autoFail:'✗ Failed',
+  },
+};
+
+let LANG = localStorage.getItem('cupdrive.lang') ||
+           ((navigator.language || '').toLowerCase().startsWith('zh') ? 'zh' : 'en');
+
+function T(key, vars={}){
+  const table = I18N[LANG] || I18N.zh;
+  let s = table[key] ?? I18N.zh[key] ?? key;
+  for (const k in vars) s = s.split('{' + k + '}').join(vars[k]);
+  return s;
+}
+
+function applyLang(){
+  document.documentElement.lang = LANG === 'zh' ? 'zh-CN' : 'en';
+  document.title = T('title');
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    el.textContent = T(el.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-html]').forEach(el => {
+    el.innerHTML = T(el.dataset.i18nHtml);
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    el.title = T(el.dataset.i18nTitle);
+  });
+  const lb = document.getElementById('btnLang');
+  lb.textContent = LANG === 'zh' ? 'EN' : '中';
+  lb.title = LANG === 'zh' ? 'Switch to English' : '切换到中文';
+  if (!S.scanning) document.getElementById('scan').textContent = T('scan');
+}
 
 // ── 状态 ────────────────────────────────────────────────────────
 const HZ = 10;               // 采样率
@@ -450,6 +527,7 @@ function loadFile(file){
   const url = URL.createObjectURL(file);
   vid.src = url;
   $('#fname').textContent = file.name;
+  $('#fname').removeAttribute('data-i18n');
   $('#drop').classList.add('hide');
 
   vid.onloadedmetadata = () => {
@@ -546,7 +624,7 @@ async function scanAudio(){
   vid.currentTime = 0;
   await vid.play();
 
-  $('#scan').textContent = '扫描 0%';
+  $('#scan').textContent = T('scanningPct', {p: 0});
   $('#scan').disabled = true;
 
   await new Promise(resolve => {
@@ -596,7 +674,8 @@ async function scanAudio(){
       }
 
       if ((frameNo & 31) === 0 && S.dur > 0){
-        $('#scan').textContent = '扫描 ' + Math.min(99, Math.floor(t/S.dur*100)) + '%';
+        $('#scan').textContent = T('scanningPct',
+          {p: Math.min(99, Math.floor(t/S.dur*100))});
       }
 
       if (vid.ended || t >= S.dur-0.05){ resolve(); return; }
@@ -660,9 +739,9 @@ async function scanAudio(){
   console.log('[scan]', S.lastScan);
 
   if (rateA < 0.85){
-    alert('音频覆盖不足：' + (rateA*100).toFixed(0) + '%');
+    alert(T('audioLow', {p: (rateA*100).toFixed(0)}));
   }
-  $('#scan').textContent = '扫描';
+  $('#scan').textContent = T('scan');
   $('#scan').disabled = false;
   draw();
 }
@@ -701,9 +780,9 @@ function saveDraft(){
       b:Array.from(S.b, v=>Math.round(v)),
       ts:Date.now()
     }));
-    $('#save').textContent = '已保存';
-    setTimeout(()=>$('#save').textContent='保存草稿', 1200);
-  }catch(e){ alert('保存失败: '+e.message); }
+    $('#save').textContent = T('saved');
+    setTimeout(()=>$('#save').textContent=T('saveDraft'), 1200);
+  }catch(e){ alert(T('saveFailed', {err: e.message})); }
 }
 function restoreDraft(name){
   try{
@@ -711,7 +790,7 @@ function restoreDraft(name){
     if (!raw) return;
     const d = JSON.parse(raw);
     if (Math.abs((d.dur||0) - S.dur) > 2) return;
-    if (!confirm(`发现同名草稿（${new Date(d.ts).toLocaleString()}），恢复？`)) return;
+    if (!confirm(T('draftConfirm', {ts: new Date(d.ts).toLocaleString()}))) return;
     const n = S.a.length;
     for (let i=0;i<n && i<d.a.length;i++){ S.a[i]=d.a[i]; S.b[i]=d.b[i]||0; }
     draw();
@@ -789,26 +868,32 @@ $('#fill').onclick = genB;
 $('#auto').onclick = async () => {
   if (!S.ready || S.scanning) return;
   const btn = $('#auto');
-  const old = btn.textContent;
   btn.disabled = true;
-  btn.textContent = '① 采样音频…';
+  btn.textContent = T('auto1');
   try {
     await scanAudio();
-    btn.textContent = '② 合成表现轨…';
+    btn.textContent = T('auto2');
     await new Promise(r => setTimeout(r, 120));
     genB();
-    btn.textContent = '③ 导出…';
+    btn.textContent = T('auto3');
     await new Promise(r => setTimeout(r, 220));
     exportJSON();
-    btn.textContent = '✓ 完成';
+    btn.textContent = T('autoDone');
   } catch (e) {
     console.error(e);
-    btn.textContent = '✗ 失败';
+    btn.textContent = T('autoFail');
   }
-  setTimeout(() => { btn.textContent = old; btn.disabled = false; }, 1800);
+  setTimeout(() => { btn.textContent = T('auto'); btn.disabled = false; }, 1800);
 };
 $('#save').onclick = saveDraft;
 $('#export').onclick = exportJSON;
+
+$('#btnLang').onclick = () => {
+  LANG = LANG === 'zh' ? 'en' : 'zh';
+  localStorage.setItem('cupdrive.lang', LANG);
+  applyLang();
+};
+applyLang();
 
 $('#play').onclick = () => { vid.paused ? vid.play() : vid.pause(); };
 vid.onplay = () => $('#play').textContent = '❚❚';

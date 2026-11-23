@@ -2,6 +2,8 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
+> **中文版：[README.zh-CN.md](README.zh-CN.md)** · **使用说明：[docs/usage.md](docs/usage.md)**
+
 **Turn any video into Bluetooth toy motion — offline, no account, no vendor content library.**
 
 ![cupdrive](docs/screenshot.png)
@@ -220,7 +222,7 @@ Produces `release\cupdrive-win64.zip` (≈21 MB compressed, Python bundled).
 Upload it:
 
 ```bash
-gh release create v0.3.1 release/cupdrive-win64.zip --title "cupdrive v0.3.1"
+gh release create v0.3.2 release/cupdrive-win64.zip --title "cupdrive v0.3.2"
 ```
 
 The build has no pythonnet dependency — BLE goes through `bleak`, the UI
@@ -239,6 +241,7 @@ Working, hand-tuned, not polished.
 - [x] Hard caps + session guard + watchdog + panic stop
 - [x] Desktop GUI — video, curves, one-click tune, scan/connect, mock mode
 - [x] Standalone Windows build (no Python required on the user's machine)
+- [x] Bilingual UI — desktop app and calibrator (EN / 中)
 - [ ] Support for other device models
 - [ ] Preset library
 

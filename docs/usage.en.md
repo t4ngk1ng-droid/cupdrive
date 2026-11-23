@@ -126,8 +126,8 @@ The editor's manual tools:
 | Selection | Raise/lower a whole range |
 
 There is also **Undo**, **Save draft** (stored in the browser), and **Export JSON**.
-The editor's own UI is currently Chinese; the automatic path above needs no
-manual editing.
+The editor follows the same language setting — use the `EN` / `中` button in its
+header.
 
 ### Step 3 — import and tune
 

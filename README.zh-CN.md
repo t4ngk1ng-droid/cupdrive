@@ -1,5 +1,9 @@
 # cupdrive
 
+[English](README.md) | **简体中文**
+
+> **English：[README.md](README.md)** · **使用说明：[docs/usage.md](docs/usage.md)**
+
 **把任意视频变成设备动作——离线、免账号、不依赖厂商内容库。**
 
 ![cupdrive](docs/screenshot.png)
@@ -200,7 +204,7 @@ release.bat
 生成 `release\cupdrive-win64.zip`（约 21 MB 压缩，内含 Python）。上传：
 
 ```bash
-gh release create v0.3.1 release/cupdrive-win64.zip --title "cupdrive v0.3.1"
+gh release create v0.3.2 release/cupdrive-win64.zip --title "cupdrive v0.3.2"
 ```
 
 构建不依赖 pythonnet——BLE 走 `bleak`，界面走本地 HTTP 服务，所以
@@ -219,7 +223,7 @@ PyInstaller 能稳定产出可运行的 exe。
 - [x] 硬上限 + 会话代号 + 看门狗 + 急停
 - [x] 桌面 GUI——视频、曲线、一键加工、扫描连接、Mock 模式
 - [x] 独立 Windows 包（用户机器不需要 Python）
-- [x] 界面中英切换
+- [x] 界面中英切换（桌面版 + 标定台）
 - [ ] 支持其他设备型号
 - [ ] 预设曲线库
 
